@@ -90,6 +90,12 @@ body[data-doc="0"] #rail, body[data-doc="0"] #props, body[data-doc="0"] #topbar 
 .tool.lock { margin-top: auto; color: var(--muted); }
 .tool.lock[aria-pressed="true"] { background: var(--accent); color: var(--accent-ink); }
 .rail-gap { flex: none; height: 1px; margin: 4px 8px; background: var(--line); }
+/* A small corner mark on a button that holds more than one tool (Revu and drawing programs do the same). */
+.tool.more { position: relative; }
+.tool.more::after {
+  content: ''; position: absolute; right: 5px; bottom: 5px; width: 0; height: 0;
+  border-left: 6px solid transparent; border-bottom: 6px solid currentColor; opacity: .55;
+}
 
 /* ---- stage ------------------------------------------------------------ */
 #stage { grid-area: stage; position: relative; overflow: hidden; background: var(--stage); touch-action: none; cursor: default; }
@@ -385,6 +391,9 @@ table.keys td:last-child { text-align: right; font-weight: 700; white-space: now
   #rail { flex-direction: row; overflow-x: auto; overflow-y: hidden; border-right: 0; border-top: 1px solid var(--line); padding: 6px 8px; }
   .tool { width: 58px; height: 50px; }
   .tool.lock { margin-top: 0; margin-left: auto; }
+  #rail.more-right { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 44px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 44px), transparent); }
+  #rail.more-left { -webkit-mask-image: linear-gradient(to right, transparent, #000 44px); mask-image: linear-gradient(to right, transparent, #000 44px); }
+  #rail.more-left.more-right { -webkit-mask-image: linear-gradient(to right, transparent, #000 44px, #000 calc(100% - 44px), transparent); mask-image: linear-gradient(to right, transparent, #000 44px, #000 calc(100% - 44px), transparent); }
   .rail-gap { width: 1px; height: auto; margin: 8px 4px; }
   .tb-label, .wide-only { display: none; }
   .tb.primary { padding: 0; width: 44px; }

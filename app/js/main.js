@@ -23,7 +23,7 @@ import { initKeys } from './keys.js';
 import { initBackup } from './backup.js';
 import { initCompare } from './compare.js';
 
-const VERSION = '0.5.0';
+const VERSION = '0.5.1';
 const asset = p => new URL(p, import.meta.url).href;
 pdfjs.GlobalWorkerOptions.workerSrc = asset('../vendor/pdfjs/pdf.worker.min.mjs');
 
@@ -748,8 +748,40 @@ async function start() {
     app.ui.showHome(true);
   }
 
-  if ('serviceWorker' in navigator && location.protocol === 'https:') {
-    navigator.serviceWorker.register('sw.js').catch(err => console.warn('offline cache not set up', err));
-  }
+  if ('serviceWorker' in navigator && location.protocol === 'https:') keepUpToDate();
+}
+
+/**
+ * Offline copy and updates. The app runs from the copy kept on the device; a new version downloads in the
+ * background and takes over. Then the open app moves onto it: straight away if it was only just opened (or brought
+ * back to the front) and nothing is half-done, otherwise it asks. Opening it from the home screen after a while also
+ * looks for an update, not only a fresh start, because iOS keeps the app in memory.
+ */
+function keepUpToDate() {
+  const sw = navigator.serviceWorker, hadOne = !!sw.controller;
+  let shownAt = performance.now(), swapping = false;
+  sw.register('sw.js').then(reg => {
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) return;
+      shownAt = performance.now();
+      reg.update().catch(() => {});
+    });
+  }).catch(err => console.warn('offline cache not set up', err));
+  const swap = async () => {
+    if (swapping) return;
+    swapping = true;
+    if (app.editing) app.commitEdit();
+    clearTimeout(saveTimer);
+    if (app.doc) await store.saveDoc(metaOf()).catch(() => {});
+    location.reload();
+  };
+  sw.addEventListener('controllerchange', async () => {
+    if (!hadOne || swapping) return;          // the very first install: this page already is the newest
+    const sheetOpen = !document.getElementById('sheet').hidden;
+    const quiet = !app.editing && !app.tools.tapping && !app.tools.pending && !sheetOpen;
+    if (quiet && performance.now() - shownAt < 20000) return swap();
+    const pick = await app.ui.choose('Redline has been updated', 'The new version is ready. Everything you have done is kept.', ['Use it now', 'Later']);
+    if (pick === 0) swap();
+  });
 }
 start();

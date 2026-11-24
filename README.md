@@ -95,7 +95,7 @@ The `app` folder is the whole app: plain files, no build step. After changing an
 node tools/publish.mjs
 ```
 
-That refreshes the offline file list and uploads the `app` folder to the `gh-pages` branch of the GitHub repository `abbasalawie-art/redline`, which is what the address serves. The site updates within a minute or two. The iPad picks up the new version the next time Redline is opened online (it shows on the launch after that).
+That refreshes the offline file list and uploads the `app` folder to the `gh-pages` branch of the GitHub repository `abbasalawie-art/redline`, which is what the address serves. The site updates within a minute or two. Redline looks for the new version whenever it is opened or brought back to the front while online, and moves onto it a few seconds later. If you are in the middle of something it asks first. Copies older than 0.5.1 only switch on the launch after they find it: close Redline fully (swipe it away) and open it again.
 
 `node tools/publish.mjs --dry` lists what would go up without uploading. The rest of the project (plan, tools, tests) is on the `main` branch; save it with a normal `git commit` and `git push`.
 
@@ -126,7 +126,7 @@ Open `http://<this PC's IP address>:5173` in Safari on the iPad. This is for a l
 | Measure | Length (drag), Run (tap along a cable route, then Done), Area (tap the corners) or Count (tap each item). Length, Run and Area need the drawing scale, asked for the first time. |
 | Lock | Keeps the current tool on instead of dropping back to Select. |
 
-Tapping the tool that is already on turns it off and goes back to Select.
+Tapping the tool that is already on turns it off and goes back to Select. A button with a small corner mark holds more than one tool: tap it, then pick the one you want at the left of the options bar (for example Arrow, Line or Polyline). On a phone the tool row scrolls sideways.
 
 - Pinch to zoom and two fingers to move the page, in any tool.
 - After an Apple Pencil touches the screen, the Pencil draws and a finger moves the page (change this under ⋯ › Settings).

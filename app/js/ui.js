@@ -149,7 +149,7 @@ export function initUI(app) {
   for (const entry of RAIL) {
     if (!entry) { rail.append(h('div', { class: 'rail-gap' })); continue; }
     rail.append(h('button', {
-      class: 'tool', 'data-rail': entry.id, 'aria-label': entry.label, html: `${icon(entry.id)}<span>${entry.label}</span>`,
+      class: entry.tools.length > 1 ? 'tool more' : 'tool', 'data-rail': entry.id, 'aria-label': entry.label, html: `${icon(entry.id)}<span>${entry.label}</span>`,
       onclick: () => {
         // Tapping the tool already in hand puts it down again.
         if (entry.id === 'select' || entry.tools.includes(app.tool)) return app.setTool('select');
@@ -162,6 +162,14 @@ export function initUI(app) {
     onclick: () => { app.lock = !app.lock; refresh(); toast(app.lock ? 'Tool stays on until you change it' : 'Back to Select after each markup'); },
   });
   rail.append(lockBtn);
+  // On a phone the rail scrolls sideways: fade the edge that has more tools past it.
+  const railEdges = () => {
+    rail.classList.toggle('more-left', rail.scrollLeft > 2);
+    rail.classList.toggle('more-right', rail.scrollLeft + rail.clientWidth < rail.scrollWidth - 2);
+  };
+  rail.addEventListener('scroll', railEdges, { passive: true });
+  window.addEventListener('resize', railEdges);
+  requestAnimationFrame(railEdges);
 
   // ---- messages -----------------------------------------------------------
   let toastTimer = 0;

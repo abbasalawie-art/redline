@@ -29,9 +29,10 @@ const VERSION = '${version}';
 const CACHE = 'redline-' + VERSION;
 const FILES = ${JSON.stringify(list, null, 2)};
 
-// Install: fetch every app file once, so the app opens with no signal.
+// Install: fetch every app file once, so the app opens with no signal. Straight from the website, never from the
+// browser's own short-term copy (the site lets browsers keep files for 10 minutes), or an update could keep old files.
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting()));
+  event.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES.map(f => new Request(f, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 
 // Activate: drop the previous version's files.
