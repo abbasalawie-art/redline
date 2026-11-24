@@ -14,19 +14,22 @@ Then open <http://localhost:5173>. Drag a PDF onto the window or use **Open a PD
 
 ## Put it on the iPad
 
-The `app` folder is the whole app: plain files, no build step. It needs to sit on a web address that starts with `https://` so iOS will install it and let it work offline. Any static host works (GitHub Pages, Cloudflare Pages, Netlify). Only the program is hosted. Your PDFs never leave the device.
+Redline is live at **<https://abbasalawie-art.github.io/redline/>** (GitHub Pages). Only the program is hosted. Your PDFs never leave the device.
 
-1. Refresh the offline file list:
+1. On the iPad, open that address in **Safari** (not Chrome), tap **Share**, then **Add to Home Screen**.
+2. Open Redline from the home screen once while online. After that it opens with no signal.
 
-   ```powershell
-   node tools/build-sw.mjs
-   ```
+### Publishing an update
 
-2. Upload the contents of `app` to the host.
-3. On the iPad, open the address in **Safari**, tap **Share**, then **Add to Home Screen**.
-4. Open Redline from the home screen once while online. After that it opens with no signal.
+The `app` folder is the whole app: plain files, no build step. After changing anything in it:
 
-To update the app later, repeat steps 1 and 2. The iPad picks up the new version the next time Redline is opened online (it shows on the launch after that).
+```powershell
+node tools/publish.mjs
+```
+
+That refreshes the offline file list and uploads the `app` folder to the `gh-pages` branch of the GitHub repository `abbasalawie-art/redline`, which is what the address serves. The site updates within a minute or two. The iPad picks up the new version the next time Redline is opened online (it shows on the launch after that).
+
+`node tools/publish.mjs --dry` lists what would go up without uploading. The rest of the project (plan, tools, tests) is on the `main` branch; save it with a normal `git commit` and `git push`.
 
 ### Quick look on the iPad without hosting
 

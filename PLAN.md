@@ -209,12 +209,18 @@ Every markup carries its own drawn appearance, so it looks the same in iOS Files
 - [x] 5. Export (editable and flattened), re-import, share sheet
 - [x] 6. Recent shelf, autosave, offline install
 - [x] 7. Test: browser on this PC, exported files opened in Revu
-- [ ] 8. Put it on a web address and install on the iPad (needs your OK on where to host)
-- [ ] 9. Test on the real iPad with Pencil, fix what feels wrong
+- [x] 8. Put it on a web address: <https://abbasalawie-art.github.io/redline/> (GitHub Pages)
+- [ ] 9. Install it on the iPad (Safari → Share → Add to Home Screen), test with Pencil, fix what feels wrong
 
 ### Where it stands (24 Nov 2026)
 
-Stages 0 to 7 are built and tested on this PC. Nothing has run on a real iPad yet.
+Stages 0 to 8 are done. The app is live at <https://abbasalawie-art.github.io/redline/> and was checked there in Chrome on this PC: it loads, stores its 43 files for offline use, opens a PDF, draws a cloud and exports it. Nothing has run on a real iPad yet.
+
+Where things live:
+
+- **The website** is the `app` folder, on the `gh-pages` branch of the GitHub repository `abbasalawie-art/redline`. `node tools/publish.mjs` refreshes the offline list and uploads it.
+- **Everything else** (this plan, tools, tests) is on the `main` branch of the same repository, pushed with plain `git push`.
+- The repository is public, which free GitHub Pages requires. It holds the program only: no drawings and no personal details.
 
 Checked and working:
 
@@ -246,6 +252,5 @@ Things that turned out differently from the plan:
 
 ## 9. Open questions
 
-- Hosting: where the app lives (GitHub Pages, Cloudflare Pages or Netlify, all free). The app holds no drawings; only the program files are hosted.
-- Name and icon.
+- Name and icon. "Redline" is a working name. The name is also in the web address, so changing it later means installing again from the new address.
 - Your markup author name as it should appear in Revu.
