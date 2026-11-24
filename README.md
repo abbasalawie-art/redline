@@ -19,6 +19,18 @@ Redline is live at **<https://abbasalawie-art.github.io/redline/>** (GitHub Page
 1. On the iPad, open that address in **Safari** (not Chrome), tap **Share**, then **Add to Home Screen**.
 2. Open Redline from the home screen once while online. After that it opens with no signal.
 
+## Use it on a PC
+
+It is the same app at the same address: open **<https://abbasalawie-art.github.io/redline/>** in Chrome or Edge. To give it its own window and taskbar icon, click the install icon at the right-hand end of the address bar (Chrome: *Install Redline*; Edge: *App available*). It then opens with no signal as well.
+
+- Drag a PDF onto the window, or use **Open a PDF**. Mouse wheel zooms, Shift + wheel moves sideways, the middle button drags the page.
+- Keys: V select, C cloud, K cloud+, Q callout, T text, A arrow, P pen, H highlight, R box, E ellipse, N pin, M measure, Ctrl+Z undo, Ctrl+F find.
+- Each browser keeps its own copy of the tray and of the drawings. Load the symbol set once per browser (**Symbols › Symbol set**).
+
+### Moving a drawing between the iPad and the PC
+
+The PDF is what travels. On the device you are leaving: **Export › Editable markups**, and save it to OneDrive. On the other device: open that file in Redline. The markups come back editable, with their symbols, photos, pins and scale. Work you have not exported stays on the device it was done on.
+
 ### Publishing an update
 
 The `app` folder is the whole app: plain files, no build step. After changing anything in it:
