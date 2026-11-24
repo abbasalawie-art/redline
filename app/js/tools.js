@@ -1,12 +1,58 @@
 // Touch, Pencil and mouse handling: what a drag or a tap does in each tool.
 import { layoutText, translate, dragHandle, TEXT_TYPES } from './shapes.js';
-import { normRect, simplify, clamp, polyArea } from './geometry.js';
+import { normRect, simplify, clamp, polyArea, polyLength, ptsBounds } from './geometry.js';
 import { MAX_SCALE } from './viewer.js';
 
 const clone = o => JSON.parse(JSON.stringify(o));
 const KEEP_DRAWING = new Set(['pen', 'hl', 'stamp', 'count']);      // these never drop back to Select
 const MARQUEE = new Set(['snip', 'retype']);               // drag a box that is not itself a markup
 const FOLLOW = new Set(['stamp', 'sig', 'pin']);           // the markup rides under the finger until it is let go
+const OPEN = new Set(['path', 'polyline']);                // tapped-out shapes that do not close
+const BLUE = '#2563eb';
+
+/** Is the point inside the loop? */
+function inLoop(x, y, pts) {
+  let c = false;
+  for (let i = 0, j = pts.length - 1; i < pts.length; j = i++) {
+    const a = pts[i], b = pts[j];
+    if ((a[1] > y) !== (b[1] > y) && x < ((b[0] - a[0]) * (y - a[1])) / (b[1] - a[1]) + a[0]) c = !c;
+  }
+  return c;
+}
+/** Is a box (all but its outer edge) inside? `test(x, y)` says whether a point is. Forgiving of a loosely drawn loop. */
+function mostlyIn(b, test) {
+  const ix = b.w * 0.15, iy = b.h * 0.15;
+  return [[b.x + b.w / 2, b.y + b.h / 2], [b.x + ix, b.y + iy], [b.x + b.w - ix, b.y + iy], [b.x + b.w - ix, b.y + b.h - iy], [b.x + ix, b.y + b.h - iy]].every(([x, y]) => test(x, y));
+}
+/** Where the line a to b crosses a circle, as fractions of the way along, in order. */
+function crossings(a, b, c, R) {
+  const dx = b[0] - a[0], dy = b[1] - a[1], fx = a[0] - c.x, fy = a[1] - c.y;
+  const A = dx * dx + dy * dy, B = 2 * (fx * dx + fy * dy), C = fx * fx + fy * fy - R * R;
+  if (A < 1e-12) return [];
+  const disc = B * B - 4 * A * C;
+  if (disc <= 1e-12) return [];
+  const s = Math.sqrt(disc);
+  return [(-B - s) / (2 * A), (-B + s) / (2 * A)].filter(t => t > 0 && t < 1);
+}
+/** Rub a circle out of a stroke. Gives the pieces that are left, or null if the circle missed it. */
+export function eraseStroke(pts, c, R) {
+  const out = [], inside = p => Math.hypot(p[0] - c.x, p[1] - c.y) < R;
+  let cur = [], touched = false;
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], ain = inside(a);
+    if (ain) { touched = true; if (cur.length >= 2) out.push(cur); cur = []; } else cur.push(a);
+    if (i === pts.length - 1) break;
+    const b = pts[i + 1];
+    let drawing = !ain;
+    for (const t of crossings(a, b, c, R)) {
+      const p = [a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1])];
+      if (drawing) { cur.push(p); if (cur.length >= 2) out.push(cur); cur = []; touched = true; } else cur = [p];
+      drawing = !drawing;
+    }
+  }
+  if (cur.length >= 2) out.push(cur);
+  return touched ? out : null;
+}
 
 export const newId = () => Array.from({ length: 16 }, () => String.fromCharCode(65 + Math.floor(Math.random() * 26))).join('');
 
@@ -27,7 +73,9 @@ export function initTools(app) {
   };
   const touches = () => [...pointers.values()].filter(p => p.type === 'touch');
   /** Tools where each tap adds a corner. */
-  const tapsPoints = t => t === 'path' || t === 'area' || (t === 'cloud' && app.prefs.tools.cloud.shape === 'poly');
+  const tapsPoints = t => t === 'path' || t === 'area' || t === 'polyline' || t === 'polygon' || (t === 'cloud' && app.prefs.tools.cloud.shape === 'poly');
+  const coalesced = e => { const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : []; return evs.length ? evs : [e]; };
+  const hereMarkups = () => app.markups.filter(m => m.page === app.doc.pageIndex);
   const r2 = n => Math.round(n * 100) / 100;
 
   // ---- straight and level -------------------------------------------------
@@ -74,13 +122,14 @@ export function initTools(app) {
 
   function abortGesture() {
     if (!g) return;
-    if (g.kind === 'draw' || g.kind === 'move') app.clearDraft();
+    if (g.kind === 'draw' || g.kind === 'move' || g.kind === 'lasso' || g.kind === 'box' || g.kind === 'erase') app.clearDraft();
     if ((g.kind === 'move' || g.kind === 'handle') && g.moved) {
-      Object.assign(g.m, clone(g.orig));
+      const list = g.list || [g.m], origs = g.origs || [g.orig];
+      list.forEach((m, i) => { Object.assign(m, clone(origs[i])); app.renderOne(m); });
       app.dropUndo();
-      app.renderOne(g.m);
       app.renderSelection();
     }
+    if (g.kind === 'erase' && g.hit) app.changed();
     g = null;
   }
 
@@ -116,14 +165,81 @@ export function initTools(app) {
     const hit = !panOnly && t.closest && t.closest('[data-id]');
     const m = hit && app.getMarkup(hit.dataset.id);
     if (m) {
+      // With Shift or Ctrl held, a tap adds the markup to what is picked or takes it out.
+      if (e.shiftKey || e.ctrlKey || e.metaKey) { app.toggleSelect(m.id); g = { kind: 'none' }; return; }
       const wasSel = app.sel === m.id;
-      app.select(m.id);
-      g = { kind: 'move', m, role: t.dataset.role || 'body', orig: clone(m), start: pagePt(e), sx: e.clientX, sy: e.clientY, moved: false, wasSel };
+      if (!app.picked().includes(m)) app.select(m.id);
+      startMove(e, m, t.dataset.role || 'body', wasSel);
+      return;
+    }
+    if (!panOnly && e.shiftKey && e.pointerType === 'mouse') {
+      // Shift and drag on empty space: a box that picks what is inside it.
+      g = { kind: 'box', start: onPage(pagePt(e)), rect: null, sx: e.clientX, sy: e.clientY };
       return;
     }
     const field = !panOnly && t.closest && t.closest('[data-field]');
     const v = view();
     g = { kind: 'pan', sx: e.clientX, sy: e.clientY, tx: v.tx, ty: v.ty, moved: false, deselect: !panOnly, field: field ? field.dataset.field : null };
+  }
+
+  /** Start dragging everything that is picked. `m` is the one under the finger. */
+  function startMove(e, m, role, wasSel) {
+    const list = app.picked();
+    g = { kind: 'move', m, list, origs: list.map(clone), role, start: pagePt(e), sx: e.clientX, sy: e.clientY, moved: false, wasSel };
+  }
+
+  // ---- lasso --------------------------------------------------------------
+  const selectDraft = extra => ({ id: 'pick', k: 1, color: BLUE, width: 1.5 / view().scale, opacity: 1, fill: BLUE, fillOpacity: 0.1, dash: 'dash', ...extra });
+  function startLasso(e) {
+    const hit = e.target.closest && e.target.closest('[data-id]');
+    const m = hit && app.getMarkup(hit.dataset.id);
+    // A drag that starts on something already picked moves the lot. Anywhere else it draws a loop.
+    if (m && app.picked().includes(m)) return startMove(e, m, 'body', false);
+    const p = onPage(pagePt(e));
+    g = { kind: 'lasso', pts: [[p.x, p.y]], hit: m ? m.id : null, sx: e.clientX, sy: e.clientY };
+  }
+  function finishLasso(done) {
+    app.clearDraft();
+    const b = ptsBounds(done.pts);
+    if (Math.max(b.w, b.h) * view().scale < 10) {
+      // A tap: add that markup to what is picked, or take it out. On empty space, start again.
+      if (done.hit) app.toggleSelect(done.hit); else app.select(null);
+      return;
+    }
+    const found = hereMarkups().filter(m => mostlyIn(app.shapesOf(m).bbox, (x, y) => inLoop(x, y, done.pts)));
+    if (!found.length) return app.ui.toast('Nothing inside that loop');
+    app.selectMany([...app.picked(), ...found].map(m => m.id));
+  }
+
+  // ---- eraser -------------------------------------------------------------
+  const eraserRadius = () => (12 * (app.prefs.tools.eraser.size || 1)) / view().scale;
+  function eraserDraft(p) {
+    const r = eraserRadius();
+    app.renderDraft({ id: 'eraser', type: 'ellipse', k: 1, color: '#111111', width: 1 / view().scale, opacity: 0.8, fill: '#ffffff', fillOpacity: 0.6, rect: { x: p.x - r, y: p.y - r, w: 2 * r, h: 2 * r } });
+  }
+  /** Rub out whatever pen and highlighter strokes the eraser passes over between its last position and this one. */
+  function eraseTo(e) {
+    const r = eraserRadius();
+    for (const ev of coalesced(e)) {
+      const to = pagePt(ev), from = g.last || to;
+      const steps = Math.max(1, Math.ceil(Math.hypot(to.x - from.x, to.y - from.y) / (r * 0.7)));
+      for (let i = 1; i <= steps; i++) {
+        const c = { x: from.x + ((to.x - from.x) * i) / steps, y: from.y + ((to.y - from.y) * i) / steps };
+        for (const m of hereMarkups()) {
+          if (m.type !== 'pen' && m.type !== 'hl') continue;
+          const left = eraseStroke(m.pts, c, r + m.width / 2);
+          if (!left) continue;
+          if (!g.hit) { g.hit = true; app.pushUndo(); }
+          // What is left of the stroke becomes strokes of its own. Crumbs smaller than the line is wide are dropped.
+          const keep = left.filter(q => polyLength(q, false) > m.width * 0.6).map(q => ({ ...clone(m), id: newId(), pts: q.map(v => [r2(v[0]), r2(v[1])]) }));
+          app.markups.splice(app.markups.indexOf(m), 1, ...keep);
+          app.dropOne(m.id);
+          for (const k of keep) app.renderOne(k);
+        }
+      }
+      g.last = to;
+    }
+    eraserDraft(g.last);
   }
 
   function startDraw(e, tool) {
@@ -142,8 +258,9 @@ export function initTools(app) {
     } else if (MARQUEE.has(tool)) {
       m = { id: 'marquee', page, type: 'rect', k, color: '#2563eb', width: 1.5 / view().scale, opacity: 1, fill: '#2563eb', fillOpacity: 0.12, rect: { x: p.x, y: p.y, w: 0, h: 0 } };
     } else {
-      const base = { id: newId(), page, type: tool, ...app.newStyle(tool) };
-      if (tool === 'arrow' || tool === 'dim') m = { ...base, p1: p, p2: { ...p } };
+      const base = { id: newId(), page, type: tool === 'line' ? 'arrow' : tool, ...app.newStyle(tool) };
+      if (tool === 'line') m = { ...base, head: 'none', p1: p, p2: { ...p } };        // a line is an arrow with no head
+      else if (tool === 'arrow' || tool === 'dim') m = { ...base, p1: p, p2: { ...p } };
       else if (tool === 'callout') m = { ...base, tip: p, box: { ax: p.x, ay: p.y, align: 'l', w: null }, text: '' };
       else if (tool === 'text') m = { ...base, box: { ax: p.x, ay: p.y, align: 'l', w: null }, text: '' };
       else if (tool === 'pen' || tool === 'hl') m = { ...base, pts: [[p.x, p.y]] };
@@ -219,7 +336,7 @@ export function initTools(app) {
       return app.retype.cover(m.rect);
     }
     if (m.rect && !FOLLOW.has(tool) && (m.rect.w * s < 10 || m.rect.h * s < 10)) return app.ui.toast('Drag a box to draw');
-    if ((tool === 'arrow' || tool === 'dim') && dragPx < 10) return app.ui.toast('Drag to draw');
+    if ((tool === 'arrow' || tool === 'line' || tool === 'dim') && dragPx < 10) return app.ui.toast('Drag to draw');
     if (tool === 'callout' && dragPx < 14) {
       // Just a tap: put the note up and to the right of the point.
       m.box = { ax: m.tip.x + 45 * m.k, ay: m.tip.y - 40 * m.k, align: 'l', w: null };
@@ -277,6 +394,7 @@ export function initTools(app) {
       return { id: 'd', type: 'arrow', k, color: m.color, width: m.width, opacity: 1, head: 'none', p1: { x: pts[0][0], y: pts[0][1] }, p2: { x: pts[1][0], y: pts[1][1] } };
     }
     if (poly.tool === 'area' && pts.length < 3) return { ...m, type: 'path', pts };
+    if (poly.tool === 'polygon' && pts.length < 3) return { ...m, type: 'polyline', pts };
     return { ...m, pts };
   }
   const drawPoly = extra => { if (poly) app.renderDraft(polyDraft(extra)); };
@@ -308,10 +426,10 @@ export function initTools(app) {
     if (poly) { const l = poly.m.pts[poly.m.pts.length - 1]; p = snapLine({ x: l[0], y: l[1] }, p); }
     if (!poly) {
       const tool = app.tool;
-      poly = { tool, closed: tool !== 'path', m: { id: newId(), page: app.doc.pageIndex, type: tool, ...app.newStyle(tool), pts: [[p.x, p.y]] } };
+      poly = { tool, closed: !OPEN.has(tool), m: { id: newId(), page: app.doc.pageIndex, type: tool, ...app.newStyle(tool), pts: [[p.x, p.y]] } };
       app.select(null);
       app.ui.polyBar(true);
-      app.ui.hint(poly.closed ? 'Tap each corner, then Done' : 'Tap along the run, then Done');
+      app.ui.hint(poly.closed ? 'Tap each corner, then Done' : tool === 'path' ? 'Tap along the run, then Done' : 'Tap each point, then Done');
     } else {
       const pts = poly.m.pts;
       const near = q => Math.hypot(q[0] - p.x, q[1] - p.y) * s < 16;
@@ -381,6 +499,8 @@ export function initTools(app) {
     const fingerPans = e.pointerType === 'touch' && app.penSeen && !app.prefs.fingerDraws;
     if (app.tool === 'select') startSelect(e, false);
     else if (fingerPans) startSelect(e, true);
+    else if (app.tool === 'lasso') startLasso(e);
+    else if (app.tool === 'eraser') { g = { kind: 'erase', sx: e.clientX, sy: e.clientY, hit: false, last: null }; eraseTo(e); }
     else if (app.tool === 'count' || tapsPoints(app.tool)) { const v = view(); g = { kind: app.tool === 'count' ? 'counttap' : 'polytap', sx: e.clientX, sy: e.clientY, tx: v.tx, ty: v.ty, moved: false }; }
     else startDraw(e, app.tool);
   }
@@ -390,6 +510,8 @@ export function initTools(app) {
     if (!p) {
       // A mouse hovering while a shape is being tapped out: show where the next line would go.
       if (poly && e.pointerType === 'mouse' && e.buttons === 0 && !e.target.closest('.stage-ui')) { const l = poly.m.pts[poly.m.pts.length - 1], q = snapLine({ x: l[0], y: l[1] }, onPage(pagePt(e))); drawPoly([q.x, q.y]); }
+      // A mouse hovering with the eraser: show how big it is.
+      else if (app.doc && app.tool === 'eraser' && !g && e.pointerType === 'mouse' && e.buttons === 0) eraserDraft(pagePt(e));
       return;
     }
     p.x = e.clientX; p.y = e.clientY;
@@ -408,19 +530,31 @@ export function initTools(app) {
       case 'move': {
         if (!g.moved && Math.hypot(dxs, dys) < 6) return;
         if (!g.moved) { g.moved = true; app.pushUndo(); }
-        const q = pagePt(e);
-        Object.assign(g.m, clone(g.orig));
-        translate(g.m, q.x - g.start.x, q.y - g.start.y, g.role === 'box' ? 'box' : null);
-        if (g.m.type === 'stamp' || g.m.type === 'pin') {
+        const q = pagePt(e), one = g.list.length === 1;
+        g.list.forEach((m, i) => { Object.assign(m, clone(g.origs[i])); translate(m, q.x - g.start.x, q.y - g.start.y, one && g.role === 'box' ? 'box' : null); });
+        if (one && (g.m.type === 'stamp' || g.m.type === 'pin')) {
           // Click into line with the other symbols on the page.
           const c = centreOf(g.m), al = alignTo(c, g.m.id);
           translate(g.m, al.p.x - c.x, al.p.y - c.y);
           if (al.guides.length) app.renderDrafts(guideMarkups(al.guides)); else app.clearDraft();
         }
-        app.renderOne(g.m);
+        for (const m of g.list) app.renderOne(m);
         app.renderSelection();
         break;
       }
+      case 'lasso': {
+        for (const ev of coalesced(e)) {
+          const q = onPage(pagePt(ev)), l = g.pts[g.pts.length - 1];
+          if (Math.hypot(q.x - l[0], q.y - l[1]) * view().scale >= 3) g.pts.push([q.x, q.y]);
+        }
+        if (g.pts.length >= 3) app.renderDraft(selectDraft({ type: 'polygon', pts: g.pts }));
+        break;
+      }
+      case 'box':
+        g.rect = normRect(g.start, onPage(pagePt(e)));
+        app.renderDraft(selectDraft({ type: 'rect', rect: g.rect }));
+        break;
+      case 'erase': eraseTo(e); break;
       case 'handle': {
         if (!g.moved && Math.hypot(dxs, dys) < 3) return;
         if (!g.moved) { g.moved = true; app.pushUndo(); }
@@ -469,6 +603,8 @@ export function initTools(app) {
       case 'move':
         app.clearDraft();
         if (done.moved) app.changed();
+        else if (app.tool === 'lasso') app.toggleSelect(done.m.id);            // a tap with the lasso takes it out again
+        else if (done.list.length > 1) app.select(done.m.id);                  // a tap on one of several picks just that one
         else if (done.wasSel && TEXT_TYPES.has(done.m.type) && done.role === 'box') app.startEdit(done.m);
         else if (done.wasSel && done.m.type === 'pin') app.pins.open(done.m);
         break;
@@ -476,6 +612,19 @@ export function initTools(app) {
         if (done.moved) app.changed();
         break;
       case 'draw': g = done; finishDraw(e); g = null; break;
+      case 'lasso': finishLasso(done); break;
+      case 'box': {
+        app.clearDraft();
+        const r = done.rect;
+        if (!r || Math.max(r.w, r.h) * view().scale < 8) break;
+        const found = hereMarkups().filter(m => mostlyIn(app.shapesOf(m).bbox, (x, y) => x >= r.x && x <= r.x + r.w && y >= r.y && y <= r.y + r.h));
+        app.selectMany([...app.picked(), ...found].map(m => m.id));
+        break;
+      }
+      case 'erase':
+        app.clearDraft();
+        if (done.hit) app.changed();
+        break;
       case 'note':
         if (Math.hypot(e.clientX - done.sx, e.clientY - done.sy) < 12) placeNote(e);
         break;
@@ -503,6 +652,7 @@ export function initTools(app) {
   stage.addEventListener('pointermove', move);
   stage.addEventListener('pointerup', up);
   stage.addEventListener('pointercancel', cancel);
+  stage.addEventListener('pointerleave', () => { if (!g && app.tool === 'eraser') app.clearDraft(); });
   stage.addEventListener('wheel', wheel, { passive: false });
   stage.addEventListener('contextmenu', e => e.preventDefault());
   for (const t of ['gesturestart', 'gesturechange', 'gestureend']) stage.addEventListener(t, e => e.preventDefault());

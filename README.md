@@ -38,11 +38,12 @@ The same keys as Bluebeam Revu, for everything Redline also does. **F1** shows t
 
 | | |
 |---|---|
-| V | Select |
+| V, Shift+O | Select, Lasso |
 | T / W | Text box / Typewriter (text with no box) |
 | Q, C, K | Callout, Cloud, Cloud+ |
-| A / L | Arrow / Line |
-| P, H, R, E | Pen, Highlight, Rectangle, Ellipse |
+| A, L, Shift+N | Arrow, Line, Polyline |
+| P, Shift+E, H | Pen, Eraser, Highlight |
+| R, E, Shift+P | Rectangle, Ellipse, Polygon |
 | S, I, G, X | Stamp (the Symbols tray), Image, Snapshot (cut a sticker), Signature |
 | N | Note (a pin with a note and photo) |
 | M, Shift+M | Measure, next measuring tool |
@@ -50,6 +51,10 @@ The same keys as Bluebeam Revu, for everything Redline also does. **F1** shows t
 | 1 to 9 | Saved tools |
 | Ctrl+Z, Ctrl+Y | Undo, Redo |
 | Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+Shift+V | Copy, Cut, Paste, Paste in place |
+| Ctrl+A | Select everything on the page |
+| Shift+click, Shift+drag | Add a markup to what is picked (or take it out), pick everything in a box |
+| Ctrl+G, Ctrl+Shift+G | Group, Ungroup |
+| Ctrl+Alt+L / R / T / B / E / M | Align left, right, top, bottom, centre, middle |
 | Arrow keys, Shift+arrows | Nudge the selected markup |
 | Tab, Shift+Tab | Next, previous markup |
 | F2 | Edit the text |
@@ -108,14 +113,14 @@ Open `http://<this PC's IP address>:5173` in Safari on the iPad. This is for a l
 
 | Tool | How |
 |---|---|
-| Select | Tap a markup. Drag to move it, drag the dots to resize. Tap a selected note again to edit its text. Drag empty space to move the page. |
+| Select | Tap a markup. Drag to move it, drag the dots to resize. Tap a selected note again to edit its text. Drag empty space to move the page. **Lasso**, beside it in the options bar, picks several at once (see below). |
 | Cloud | Drag a box. **Shape** in the options bar switches to *Corners* (tap each corner, then Done) or *Freehand* (draw a loop). |
 | Cloud+ | Drag the cloud, then tap where the note goes and type. |
 | Callout | Drag from the thing you are pointing at to where the text goes, then type. |
 | Text | Tap and type. **Retype** covers existing words (see below). |
-| Arrow | Drag. The head is at the end of the drag. Set the head to *None* for a plain line. |
-| Pen, Highlight | Draw. |
-| Shape | Drag. Box or Ellipse. |
+| Arrow | Drag. The head is at the end of the drag. The options bar switches between **Arrow**, **Line** (no head) and **Polyline** (tap each point, then Done; it can have an arrowhead on its last point). The rail button shows whichever you used last. |
+| Pen, Highlight | Draw. **Eraser**, beside Pen in the options bar, rubs out parts of pen and highlighter strokes. |
+| Shape | **Box** and **Ellipse**: drag. **Polygon**: tap each corner, then Done (or tap the first corner again). |
 | Symbols | Opens the tray. Pick a symbol, then tap the drawing to place it. It keeps placing until you pick another tool. With **Row** set to a number, drag a line and that many go down along it, evenly spaced. |
 | Pin | Tap. A numbered marker appears and a sheet opens for its status, a note and photos. |
 | Measure | Length (drag), Run (tap along a cable route, then Done), Area (tap the corners) or Count (tap each item). Length, Run and Area need the drawing scale, asked for the first time. |
@@ -127,8 +132,17 @@ Tapping the tool that is already on turns it off and goes back to Select.
 - After an Apple Pencil touches the screen, the Pencil draws and a finger moves the page (change this under ⋯ › Settings).
 - The options bar along the bottom changes the selected markup, or the next one you draw. Each tool remembers its own options.
 - **★ Save** in the options bar keeps a tool with its colours and sizes. Saved tools are at the top of the Symbols tray.
+- **Style** in the options bar sets the line type of a line, arrow, polyline, box, ellipse, polygon, cable run or area: solid, dotted, short dash, dashed, dash dot, centre line or long short. They are the same six dashed styles Revu has, and Revu shows them as its own.
 - **Snap** (on by default, ⋯ › Settings): a line drawn within a few degrees of level or upright becomes exactly so, and a symbol or pin placed nearly in line with another clicks into line, with a blue guide.
 - Everything is saved on the device as you go. **Files** lists what is stored.
+
+### Several markups at once
+
+- **Lasso** (Select, then *Lasso* in the options bar): draw a loop round the markups you want. Another loop adds more. Tap a markup to add it or take it out; tap empty space to start again. Drag any picked markup to move them all.
+- On a PC, in Select: **Shift+click** adds a markup or takes it out, **Shift+drag** on empty space picks everything in a box, **Ctrl+A** picks everything on the page.
+- With several picked, the options bar changes them together (**Colour**, **Width**, **Style**, **Opacity**) and offers **Line up**, **Group**, **Copy** and **Delete**.
+- **Line up** aligns them to the left, centre, right, top, middle or bottom of the space they take up, or spaces three or more evenly across or down.
+- **Group** ties them together: from then on a tap on one picks them all and they move as one. **Ungroup** lets them go. Revu sees the same group.
 
 ### Symbols, stickers and stamps
 
@@ -221,6 +235,8 @@ Writes every kind of markup onto a normal page and a rotated page, reads them ba
 - Find and Retype only see typed text. CAD drawings often draw their text as lines.
 - Stickers you cut yourself are pictures (sharp, but not line work). Symbol sets are line work.
 - A count is saved as one stamp carrying its total, not as Revu's own count markup.
+- The eraser works on pen and highlighter strokes only, and what is left of a stroke becomes strokes of its own.
+- Dashes are drawn to suit the sheet size and the line width. If a markup is restyled in Revu, Revu redraws it with its own fixed dash lengths: the same line type, a little finer on a big sheet.
 - Measurements are saved as lines and shapes carrying the value as a comment, not as Revu's own measurement markups.
 - A web app cannot appear in the iOS "Open in…" menu. Open PDFs from inside Redline.
 

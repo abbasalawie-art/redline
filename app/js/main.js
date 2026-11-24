@@ -2,8 +2,8 @@
 import * as pdfjs from '../vendor/pdfjs/pdf.min.mjs';
 import * as PDFLib from '../vendor/pdf-lib/pdf-lib.esm.min.js';
 import { makeFont } from './text.js';
-import { buildShapes, translate, TEXT_TYPES, FILL_TYPES, HEAD_TYPES, SHAPE_FILL_TYPES, MEASURE_TYPES } from './shapes.js';
-import { el, drawMarkup, drawSelection, setAssets } from './render-svg.js';
+import { buildShapes, translate, TEXT_TYPES, FILL_TYPES, HEAD_TYPES, SHAPE_FILL_TYPES, MEASURE_TYPES, DASH_TYPES, statusOf, pinColour } from './shapes.js';
+import { el, drawMarkup, drawSelection, drawPicked, setAssets } from './render-svg.js';
 import { createViewer } from './viewer.js';
 import { exportPdf, importPdf } from './pdf-export.js';
 import { clamp } from './geometry.js';
@@ -23,7 +23,7 @@ import { initKeys } from './keys.js';
 import { initBackup } from './backup.js';
 import { initCompare } from './compare.js';
 
-const VERSION = '0.4.0';
+const VERSION = '0.5.0';
 const asset = p => new URL(p, import.meta.url).href;
 pdfjs.GlobalWorkerOptions.workerSrc = asset('../vendor/pdfjs/pdf.worker.min.mjs');
 
@@ -34,6 +34,10 @@ const TOOL_DEFAULTS = {
   callout: { color: RED, fill: null, textColor: RED, fontSize: 'auto', width: 2, head: 'closed', border: true, opacity: 1 },
   text: { color: RED, fill: null, textColor: RED, fontSize: 'auto', width: 1, border: false, opacity: 1 },
   arrow: { color: RED, width: 2, head: 'closed', opacity: 1 },
+  line: { color: RED, width: 2, opacity: 1 },
+  polyline: { color: RED, width: 2, head: 'none', opacity: 1 },
+  polygon: { color: RED, fill: null, fillOpacity: 0.25, width: 2, opacity: 1 },
+  eraser: { size: 1 },
   pen: { color: RED, width: 2, opacity: 1 },
   hl: { color: '#facc15', width: 14, opacity: 0.45 },
   rect: { color: RED, fill: null, fillOpacity: 0.25, width: 2, opacity: 1 },
@@ -53,7 +57,7 @@ const app = {
   version: VERSION, PDFLib, pdfjs, font: makeFont(PDFLib), assets,
   el: { stage: $('stage'), layer: $('layer'), base: $('base'), detail: $('detail'), svg: $('overlay'), marks: $('marks'), draft: $('draft'), sel: $('sel'), editor: $('editor'), fields: $('fields'), found: $('found') },
   doc: null,              // { id, name, pdf, bytes, pageCount, pageIndex, pageInfo, writable, password, srcSize, form, scale }
-  markups: [], sel: null, tool: 'select', lock: false, editing: null, penSeen: false,
+  markups: [], tool: 'select', lock: false, editing: null, penSeen: false,
   undoStack: [], redoStack: [],
   prefs: {
     author: '', fingerDraws: false, lastDoc: null, signature: null, favourites: [], stamps: null, snap: true,
@@ -64,12 +68,25 @@ const app = {
 window.redline = app;     // handy for testing from the console
 setAssets(assets);
 app.savePrefs = () => store.savePrefs(app.prefs);
+{
+  // The L key used to turn the Arrow tool into a line by taking its head off. Line is now a tool of its own.
+  const a = app.prefs.tools.arrow;
+  if (a.lastHead) { if (a.head === 'none') a.head = a.lastHead; delete a.lastHead; }
+}
+
+// ---- what is picked -----------------------------------------------------------
+// One markup or several. `app.sel` is the id when exactly one is picked, which is all most of the app asks about.
+let picks = [];
+Object.defineProperty(app, 'sel', { get: () => (picks.length === 1 ? picks[0] : null), set: id => { picks = id ? [id] : []; } });
 
 // ---- markups on screen ------------------------------------------------------
 const groups = new Map();
 app.getMarkup = id => app.markups.find(m => m.id === id);
 app.selected = () => (app.sel ? app.getMarkup(app.sel) || null : null);
+/** Everything that is picked: one markup, several, or none. */
+app.picked = () => picks.map(app.getMarkup).filter(Boolean);
 app.shapesOf = m => buildShapes(m, app.font, assets);
+const unionBox = (a, b) => { const x = Math.min(a.x, b.x), y = Math.min(a.y, b.y); return { x, y, w: Math.max(a.x + a.w, b.x + b.w) - x, h: Math.max(a.y + a.h, b.y + b.h) - y }; };
 
 app.renderOne = m => {
   let g = groups.get(m.id);
@@ -77,6 +94,8 @@ app.renderOne = m => {
   g.classList.toggle('editing', app.editing === m.id);
   drawMarkup(g, app.shapesOf(m));
 };
+/** Take one markup off the screen: it has been removed or replaced. */
+app.dropOne = id => { const g = groups.get(id); if (g) { g.remove(); groups.delete(id); } };
 app.renderAll = () => {
   app.el.marks.textContent = '';
   groups.clear();
@@ -84,9 +103,12 @@ app.renderAll = () => {
   app.renderSelection();
 };
 app.renderSelection = () => {
-  const m = app.selected();
-  const show = m && app.doc && m.page === app.doc.pageIndex;
-  drawSelection(app.el.sel, show ? app.shapesOf(m) : null, 1 / app.viewer.view.scale, { editing: !!m && app.editing === m.id });
+  const px = 1 / app.viewer.view.scale;
+  const ms = app.doc ? app.picked().filter(m => m.page === app.doc.pageIndex) : [];
+  // Several at once, or anything picked with the lasso: outlines only, no handles.
+  if (ms.length > 1 || (ms.length === 1 && app.tool === 'lasso')) return drawPicked(app.el.sel, ms.map(m => app.shapesOf(m).bbox), px);
+  const m = ms[0];
+  drawSelection(app.el.sel, m ? app.shapesOf(m) : null, px, { editing: !!m && app.editing === m.id });
 };
 app.renderDraft = m => drawMarkup(app.el.draft, app.shapesOf(m), { hit: false });
 /** Several things at once in the draft layer: a row of symbols, or a symbol and its guide lines. */
@@ -138,95 +160,182 @@ function timeTravel(from, to) {
 app.undo = () => timeTravel(app.undoStack, app.redoStack);
 app.redo = () => timeTravel(app.redoStack, app.undoStack);
 
-app.select = id => {
-  if (app.sel === id) return;
-  app.sel = id;
+/** A markup and everything grouped with it. */
+const withGroup = m => (m.group ? app.markups.filter(x => x.group === m.group && x.page === m.page) : [m]);
+function pick(ids) {
+  if (ids.length === picks.length && ids.every((id, i) => id === picks[i])) return;
+  picks = ids;
   app.renderSelection();
   app.ui.refresh();
+}
+/** Pick one markup (with its group, if it is in one), or nothing. */
+app.select = id => { const m = id ? app.getMarkup(id) : null; pick(m ? withGroup(m).map(x => x.id) : []); };
+/** Pick several markups at once. Anything grouped brings the rest of its group. */
+app.selectMany = ids => {
+  const want = new Set();
+  for (const id of ids) { const m = app.getMarkup(id); if (m) for (const x of withGroup(m)) want.add(x.id); }
+  pick(app.markups.filter(m => want.has(m.id)).map(m => m.id));
+};
+/** Add a markup (and its group) to what is picked, or take it out again. */
+app.toggleSelect = id => {
+  const m = app.getMarkup(id);
+  if (!m) return;
+  const ids = withGroup(m).map(x => x.id);
+  app.selectMany(ids.every(x => picks.includes(x)) ? picks.filter(x => !ids.includes(x)) : [...picks, ...ids]);
+};
+app.selectAll = () => {
+  if (!app.doc) return;
+  if (app.editing) app.commitEdit();
+  if (app.tool !== 'select' && app.tool !== 'lasso') app.setTool('select');
+  app.selectMany(app.markups.filter(m => m.page === app.doc.pageIndex).map(m => m.id));
 };
 app.setTool = t => {
   if (app.editing) app.commitEdit();
   app.tools.cancelPending();
   app.ui.hint(null);
+  app.clearDraft();
   if (t !== app.tool) app.tools.resetCount();
   app.tool = t;
   app.el.stage.dataset.tool = t;
-  if (t !== 'select') app.sel = null;
+  if (t !== 'select' && t !== 'lasso') app.sel = null;
   app.renderSelection();
   app.ui.refresh();
   if (MEASURE_TYPES.has(t) && app.doc && !app.scaleOf(app.doc.pageIndex)) app.ui.scaleSheet();
 };
 app.deleteSelected = () => {
-  const m = app.selected();
-  if (!m) return;
+  if (!picks.length) return;
   if (app.editing) app.commitEdit();
-  if (!app.getMarkup(m.id)) return;
+  const gone = new Set(app.picked().map(m => m.id));
+  if (!gone.size) return;
   app.pushUndo();
-  app.markups = app.markups.filter(x => x.id !== m.id);
+  app.markups = app.markups.filter(x => !gone.has(x.id));
   app.sel = null;
   app.changed();
 };
+app.nextPin = () => Math.max(0, ...app.markups.filter(m => m.type === 'pin').map(m => m.n || 0)) + 1;
+/** Copies of markups with ids of their own. Copies of a group are a group of their own; pins take the next numbers. */
+function copiesOf(list, page = null) {
+  const groupIds = new Map();
+  let pin = app.nextPin();
+  return list.map(m => {
+    const c = JSON.parse(JSON.stringify(m));
+    c.id = newId();
+    if (page != null) c.page = page;
+    if (c.group) { if (!groupIds.has(c.group)) groupIds.set(c.group, newId()); c.group = groupIds.get(c.group); }
+    if (c.type === 'pin') c.n = pin++;
+    return c;
+  });
+}
 app.duplicateSelected = () => {
-  const m = app.selected();
-  if (!m) return;
+  if (!picks.length) return;
   if (app.editing) app.commitEdit();
+  const src = app.picked();
+  if (!src.length) return;
   app.pushUndo();
-  const c = JSON.parse(JSON.stringify(m));
-  c.id = newId();
-  const d = 14 * m.k;
-  for (const p of [c.rect, c.tip, c.p, c.p1, c.p2]) if (p) { p.x += d; p.y += d; }
-  if (c.box) { c.box.ax += d; c.box.ay += d; }
-  if (c.pts) for (const p of c.pts) { p[0] += d; p[1] += d; }
-  if (c.type === 'pin') c.n = app.nextPin();
-  app.markups.push(c);
-  app.sel = c.id;
+  const copies = copiesOf(src);
+  for (const c of copies) translate(c, 14 * c.k, 14 * c.k);
+  app.markups.push(...copies);
+  picks = copies.map(c => c.id);
   app.changed();
 };
-app.nextPin = () => Math.max(0, ...app.markups.filter(m => m.type === 'pin').map(m => m.n || 0)) + 1;
 
 // ---- copy and paste, nudging, order -------------------------------------------
-let clip = null;
-app.copySelected = () => { const m = app.selected(); if (m) clip = JSON.parse(JSON.stringify(m)); return !!m; };
+let clip = [];
+app.copySelected = () => { const ms = app.picked(); if (ms.length) clip = JSON.parse(JSON.stringify(ms)); return ms.length > 0; };
 app.cutSelected = () => { if (app.copySelected()) app.deleteSelected(); };
-/** Paste the copied markup onto the page in view: where it was (`inPlace`), or in the middle of the screen. */
+/** Paste what was copied onto the page in view: where it was (`inPlace`), or in the middle of the screen. */
 app.paste = inPlace => {
-  if (!clip || !app.doc) return;
+  if (!clip.length || !app.doc) return;
   if (app.editing) app.commitEdit();
-  const c = JSON.parse(JSON.stringify(clip));
-  c.id = newId();
-  c.page = app.doc.pageIndex;
-  if (c.type === 'pin') c.n = app.nextPin();
+  const copies = copiesOf(clip, app.doc.pageIndex);
   if (!inPlace) {
-    const b = app.shapesOf(c).bbox, st = app.el.stage.getBoundingClientRect(), v = app.viewer.view, s = app.viewer.size;
+    const b = copies.map(c => app.shapesOf(c).bbox).reduce(unionBox), st = app.el.stage.getBoundingClientRect(), v = app.viewer.view, s = app.viewer.size;
     const cx = clamp((st.width / 2 - v.tx) / v.scale, 0, s.w), cy = clamp((st.height / 2 - v.ty) / v.scale, 0, s.h);
-    translate(c, cx - (b.x + b.w / 2), cy - (b.y + b.h / 2));
+    for (const c of copies) translate(c, cx - (b.x + b.w / 2), cy - (b.y + b.h / 2));
   }
   app.pushUndo();
-  app.markups.push(c);
-  if (app.tool !== 'select') app.setTool('select');
-  app.sel = c.id;
+  app.markups.push(...copies);
+  if (app.tool !== 'select' && app.tool !== 'lasso') app.setTool('select');
+  picks = copies.map(c => c.id);
   app.changed();
 };
 app.nudge = (dx, dy) => {
-  const m = app.selected();
-  if (!m) return;
+  if (!picks.length) return;
   if (app.editing) app.commitEdit();
+  const ms = app.picked();
+  if (!ms.length) return;
   app.pushUndo();
-  translate(m, dx, dy);
+  for (const m of ms) translate(m, dx, dy);
   app.changed();
 };
-/** Move the selected markup in front of or behind the others on its page: 'up', 'down', 'front' or 'back'. */
+/** Move what is picked in front of or behind the other markups on its page: 'up', 'down', 'front' or 'back'. */
 app.reorder = where => {
-  const m = app.selected();
-  if (!m) return;
-  const peers = app.markups.filter(x => x.page === m.page), i = peers.indexOf(m);
-  const j = where === 'front' ? peers.length - 1 : where === 'back' ? 0 : clamp(i + (where === 'up' ? 1 : -1), 0, peers.length - 1);
-  if (j === i) return;
+  const ms = app.picked();
+  if (!ms.length) return;
+  const page = ms[0].page, set = new Set(ms), was = app.markups.filter(x => x.page === page);
+  let peers = was.slice();
+  if (where === 'front') peers = [...peers.filter(x => !set.has(x)), ...peers.filter(x => set.has(x))];
+  else if (where === 'back') peers = [...peers.filter(x => set.has(x)), ...peers.filter(x => !set.has(x))];
+  else if (where === 'up') { for (let i = peers.length - 2; i >= 0; i--) if (set.has(peers[i]) && !set.has(peers[i + 1])) [peers[i], peers[i + 1]] = [peers[i + 1], peers[i]]; }
+  else for (let i = 1; i < peers.length; i++) if (set.has(peers[i]) && !set.has(peers[i - 1])) [peers[i], peers[i - 1]] = [peers[i - 1], peers[i]];
+  if (peers.every((x, i) => x === was[i])) return;
   app.pushUndo();
-  peers.splice(i, 1);
-  peers.splice(j, 0, m);
   let k = 0;
-  app.markups = app.markups.map(x => (x.page === m.page ? peers[k++] : x));
+  app.markups = app.markups.map(x => (x.page === page ? peers[k++] : x));
+  app.changed();
+};
+
+// ---- several at once: group, line up, space out ---------------------------------
+app.group = () => {
+  if (app.editing) app.commitEdit();
+  const ms = app.picked();
+  if (ms.length < 2) return;
+  app.pushUndo();
+  const id = newId();
+  for (const m of ms) m.group = id;
+  app.changed();
+  app.ui.toast(`${ms.length} markups grouped. They now move as one.`);
+};
+app.ungroup = () => {
+  const ms = app.picked().filter(m => m.group);
+  if (!ms.length) return;
+  app.pushUndo();
+  for (const m of ms) delete m.group;
+  app.changed();
+  app.ui.toast('Ungrouped');
+};
+const boxOf = m => (m.type === 'stamp' ? m.rect : app.shapesOf(m).bbox);
+/** What gets lined up: each group as one piece, each loose markup on its own. One group by itself lines up its members. */
+function pieces() {
+  const ms = app.picked(), by = new Map();
+  for (const m of ms) { const key = m.group || m.id; by.set(key, [...(by.get(key) || []), m]); }
+  const list = by.size === 1 ? ms.map(m => [m]) : [...by.values()];
+  return list.map(members => ({ members, box: members.map(boxOf).reduce(unionBox) }));
+}
+/** Line up what is picked: to the 'left', 'centre', 'right', 'top', 'middle' or 'bottom' of the space it takes up. */
+app.align = how => {
+  if (app.editing) app.commitEdit();
+  const ps = pieces();
+  if (ps.length < 2) return;
+  const all = ps.map(p => p.box).reduce(unionBox);
+  app.pushUndo();
+  for (const { members, box } of ps) {
+    const dx = how === 'left' ? all.x - box.x : how === 'right' ? all.x + all.w - box.x - box.w : how === 'centre' ? all.x + all.w / 2 - box.x - box.w / 2 : 0;
+    const dy = how === 'top' ? all.y - box.y : how === 'bottom' ? all.y + all.h - box.y - box.h : how === 'middle' ? all.y + all.h / 2 - box.y - box.h / 2 : 0;
+    for (const m of members) translate(m, dx, dy);
+  }
+  app.changed();
+};
+/** Space what is picked evenly between the two outermost: 'across' or 'down'. */
+app.spread = dir => {
+  if (app.editing) app.commitEdit();
+  const ax = dir === 'across' ? 'x' : 'y', sz = dir === 'across' ? 'w' : 'h';
+  const mid = p => p.box[ax] + p.box[sz] / 2;
+  const ps = pieces().sort((a, b) => mid(a) - mid(b));
+  if (ps.length < 3) return app.ui.toast('Pick three or more to space them evenly');
+  const first = mid(ps[0]), step = (mid(ps[ps.length - 1]) - first) / (ps.length - 1);
+  app.pushUndo();
+  ps.forEach((p, i) => { const d = first + step * i - mid(p); for (const m of p.members) translate(m, ax === 'x' ? d : 0, ax === 'y' ? d : 0); });
   app.changed();
 };
 app.selectNext = dir => {
@@ -234,8 +343,11 @@ app.selectNext = dir => {
   const list = app.markups.filter(m => m.page === app.doc.pageIndex);
   if (!list.length) return;
   if (app.editing) app.commitEdit();
-  const i = list.findIndex(m => m.id === app.sel);
-  const next = list[i < 0 ? (dir > 0 ? 0 : list.length - 1) : (i + dir + list.length) % list.length];
+  // Step on from what is picked now to the next markup that is not part of it (a group counts as one stop).
+  const cur = app.picked(), n = list.length;
+  let i = cur.length ? list.indexOf(cur[dir > 0 ? cur.length - 1 : 0]) : dir > 0 ? -1 : n, next = null;
+  for (let step = 0; step < n && !next; step++) { i = (i + dir + n) % n; if (!cur.includes(list[i])) next = list[i]; }
+  if (!next) return;
   if (app.tool !== 'select') app.setTool('select');
   app.select(next.id);
 };
@@ -250,10 +362,40 @@ app.newStyle = tool => {
   if (TEXT_TYPES.has(tool)) { s.textColor = d.textColor; s.fontSize = d.fontSize === 'auto' ? 12 * k : d.fontSize; s.border = !!d.border; }
   if (MEASURE_TYPES.has(tool)) { s.fontSize = d.fontSize === 'auto' ? 10 * k : d.fontSize; s.mpp = app.scaleOf(app.doc.pageIndex); }
   if (HEAD_TYPES.has(tool)) s.head = d.head;
+  if (d.dash && d.dash !== 'solid' && (DASH_TYPES.has(tool) || tool === 'line')) s.dash = d.dash;
   return s;
 };
+/** One markup's value for an option that several markups can share, or undefined where the option means nothing to it. */
+const sharedValue = (m, key) => {
+  if (key === 'color') return m.type === 'stamp' ? (app.kit.canTint(m) ? m.tint || null : undefined) : m.type === 'pin' ? pinColour(m) : m.color;
+  if (key === 'width') return m.width != null && m.type !== 'hl' && m.type !== 'sig' ? Math.round((m.width / m.k) * 100) / 100 : undefined;
+  if (key === 'dash') return DASH_TYPES.has(m.type) ? m.dash || 'solid' : undefined;
+  if (key === 'opacity') return m.opacity ?? 1;
+  return undefined;
+};
+app.sharedValue = sharedValue;
+function setShared(ms, key, value) {
+  app.pushUndo();
+  for (const m of ms) {
+    if (sharedValue(m, key) === undefined) continue;
+    if (key === 'color') {
+      if (m.type === 'stamp') m.tint = value;
+      else if (m.type === 'pin') { if (statusOf(m) === 'open') m.color = value; }
+      else { m.color = value; if (TEXT_TYPES.has(m.type)) m.textColor = value; }
+    } else if (key === 'width') m.width = value * m.k;
+    else if (key === 'dash') { if (value === 'solid') delete m.dash; else m.dash = value; }
+    else if (key === 'opacity') m.opacity = value;
+  }
+  app.changed();
+}
 app.propValue = key => {
+  if (picks.length > 1) {
+    // Several picked: the value they all share, or null when they differ.
+    const vals = app.picked().map(m => sharedValue(m, key)).filter(v => v !== undefined);
+    return vals.length && vals.every(v => v === vals[0]) ? vals[0] : null;
+  }
   const m = app.selected();
+  if (key === 'dash') return (m ? m.dash : (app.prefs.tools[app.tool] || {}).dash) || 'solid';
   if (!m && app.tool === 'stamp' && key === 'markColor') return app.kit.currentTint() || app.prefs.tools.stamp.markColor;
   if (!m) return (app.prefs.tools[app.tool] || {})[key] ?? null;
   if (key === 'width') return Math.round((m.width / m.k) * 100) / 100;
@@ -267,7 +409,10 @@ app.propValue = key => {
   return m[key] ?? null;
 };
 app.setProp = (key, value) => {
-  const m = app.selected(), type = m ? m.type : app.tool;
+  if (picks.length > 1) return setShared(app.picked(), key, value);
+  const m = app.selected();
+  // A line is an arrow with no head: its options are remembered for the Line tool, not the Arrow tool.
+  const type = m ? (m.type === 'arrow' && m.head === 'none' && key !== 'head' ? 'line' : m.type) : app.tool;
   if (!app.prefs.tools[type]) return;
   if (type === 'stamp' && (key === 'mode' || key === 'markColor')) {
     // Markup or Design, and the markup colour: remembered for the next symbols, applied to the one selected.
@@ -279,13 +424,15 @@ app.setProp = (key, value) => {
     m.tint = key === 'markColor' ? value : value === 'design' ? null : app.kit.markupTint(m.sym);
     return app.changed();
   }
-  app.prefs.tools[type][key] = value;
+  // Taking the head off one arrow does not turn the Arrow tool into a line tool.
+  if (!(m && m.type === 'arrow' && key === 'head' && value === 'none')) app.prefs.tools[type][key] = value;
   if (type === 'text' && key === 'textColor') app.prefs.tools.text.color = value;
   store.savePrefs(app.prefs);
   if (!m) { if (key === 'shape') app.tools.cancelPending({ discard: true }); return app.ui.refresh(); }
   app.pushUndo();
   if (key === 'width') m.width = value * m.k;
   else if (key === 'status') { m.status = value; m.statusAt = Date.now(); }
+  else if (key === 'dash') { if (value === 'solid') delete m.dash; else m.dash = value; }
   else if (key === 'fontSize') m.fontSize = value === 'auto' ? (MEASURE_TYPES.has(m.type) ? 10 : 12) * m.k : value;
   else if (key === 'scale') {
     const r = m.rect, cx = r.x + r.w / 2, cy = r.y + r.h / 2, w = (m.nw || r.w) * value, h = (m.nh || r.h) * value;

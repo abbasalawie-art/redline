@@ -5,16 +5,37 @@ import { LINE_HEIGHT, ASCENT } from './text.js';
 
 export const TEXT_TYPES = new Set(['cloudplus', 'callout', 'text']);
 export const RECT_TYPES = new Set(['cloud', 'cloudplus', 'rect', 'ellipse']);
-export const HEAD_TYPES = new Set(['cloudplus', 'callout', 'arrow']);
-export const FILL_TYPES = new Set(['cloud', 'cloudplus', 'callout', 'text', 'rect', 'ellipse', 'area']);
-export const SHAPE_FILL_TYPES = new Set(['cloud', 'cloudplus', 'rect', 'ellipse', 'area']);   // these fills can be see-through
+export const HEAD_TYPES = new Set(['cloudplus', 'callout', 'arrow', 'polyline']);
+export const FILL_TYPES = new Set(['cloud', 'cloudplus', 'callout', 'text', 'rect', 'ellipse', 'area', 'polygon']);
+export const SHAPE_FILL_TYPES = new Set(['cloud', 'cloudplus', 'rect', 'ellipse', 'area', 'polygon']);   // these fills can be see-through
 export const MEASURE_TYPES = new Set(['dim', 'path', 'area']);
-export const POLY_TYPES = new Set(['path', 'area']);          // drawn by tapping points
+export const POLY_TYPES = new Set(['path', 'area', 'polyline', 'polygon']);          // drawn by tapping points
+
+// Line types. These are Revu's six dashed styles, pattern for pattern (its "Dashed 1" to "Dashed 6", in that order):
+// Revu only knows a line as dashed when the pattern in the file is exactly one of its own, and it draws dashes with
+// square ends. On screen and in the exported picture the pattern grows with the sheet and with a thick line.
+export const DASH_TYPES = new Set(['arrow', 'polyline', 'polygon', 'rect', 'ellipse', 'path', 'area']);
+export const DASHES = {
+  solid: { label: 'Solid', pattern: null },
+  dot: { label: 'Dotted', pattern: [2, 2] },
+  short: { label: 'Short dash', pattern: [3, 3] },
+  dash: { label: 'Dashed', pattern: [4, 4] },
+  dashdot: { label: 'Dash dot', pattern: [4, 3, 2, 3] },
+  centre: { label: 'Centre line', pattern: [4, 3, 16, 3] },
+  long: { label: 'Long short', pattern: [8, 4, 4, 4] },
+};
+/** The pattern as Revu knows it, or null for a solid line. */
+export const dashPattern = m => (DASHES[m.dash] && DASHES[m.dash].pattern) || null;
+/** The pattern as it is drawn for this markup. */
+export const dashOf = m => { const p = dashPattern(m), u = Math.max(m.k || 1, m.width / 2); return p ? p.map(v => v * u) : null; };
+/** What a dashed line adds to the way its stroke is drawn. */
+const dashed = m => { const dash = dashOf(m); return dash ? { dash, cap: 'butt' } : {}; };
 
 export const SUBJECT = {
   cloud: 'Cloud', cloudplus: 'Cloud+', callout: 'Callout', text: 'Text Box', arrow: 'Arrow',
   pen: 'Pen', hl: 'Highlight', rect: 'Rectangle', ellipse: 'Ellipse',
   stamp: 'Symbol', pin: 'Pin', dim: 'Length', path: 'Cable run', area: 'Area', sig: 'Signature', count: 'Count',
+  polyline: 'Polyline', polygon: 'Polygon',
 };
 
 // A pin is open until it is dealt with. Fixed and not-accepted pins take their own colour, so a glance at the sheet shows what is left.
@@ -83,10 +104,10 @@ function textBoxItems(m, tb) {
 }
 
 /** pts = [tip, ...rest]; the ending is drawn at the tip. */
-function leaderItems(m, pts, head) {
+function leaderItems(m, pts, head, dash = null) {
   const end = G.lineEnding(head, pts[0], pts[1], m.width, m.k);
   const d = [['M', end.shaftEnd.x, end.shaftEnd.y], ...pts.slice(1).map(p => ['L', p.x, p.y])];
-  const items = [path(d, { stroke: m.color, w: m.width, opacity: m.opacity })];
+  const items = [path(d, { stroke: m.color, w: m.width, opacity: m.opacity, ...(dash ? { dash, cap: 'butt' } : {}) })];
   for (const p of end.paths) {
     items.push(p.filled
       ? path(p.d, { fill: m.color, opacity: m.opacity })
@@ -260,7 +281,7 @@ export function buildShapes(m, font, assets) {
       break;
     }
     case 'arrow': {
-      const items = leaderItems(m, [m.p2, m.p1], m.head);
+      const items = leaderItems(m, [m.p2, m.p1], m.head, dashOf(m));
       parts.push({ kind: 'line', items, bbox: bounds(items), p1: m.p1, p2: m.p2, head: m.head });
       handles.push({ id: 'p1', x: m.p1.x, y: m.p1.y }, { id: 'p2', x: m.p2.x, y: m.p2.y });
       break;
@@ -288,9 +309,25 @@ export function buildShapes(m, font, assets) {
       const d = m.type === 'rect' ? G.rectPath(m.rect) : G.ellipsePath(m.rect);
       const items = [];
       if (m.fill) items.push(path(d, { fill: m.fill, opacity: fillAlpha(m) }));
-      items.push(path(d, { stroke: m.color, w: m.width, opacity: m.opacity, join: 'miter' }));
+      items.push(path(d, { stroke: m.color, w: m.width, opacity: m.opacity, join: 'miter', ...dashed(m) }));
       parts.push({ kind: m.type, items, bbox: bounds(items), rect: m.rect });
       rectHandles(m.rect);
+      break;
+    }
+    case 'polyline': {
+      // A line through any number of points. The arrowhead, if it has one, is at the last point.
+      const tipFirst = m.pts.map(p => ({ x: p[0], y: p[1] })).reverse();
+      const items = leaderItems(m, tipFirst, m.head || 'none', dashOf(m));
+      parts.push({ kind: 'polyline', items, bbox: bounds(items), pts: m.pts, head: m.head || 'none' });
+      vertexHandles(m.pts);
+      break;
+    }
+    case 'polygon': {
+      const d = G.polyPath(m.pts, true), items = [];
+      if (m.fill) items.push(path(d, { fill: m.fill, opacity: fillAlpha(m) }));
+      items.push(path(d, { stroke: m.color, w: m.width, opacity: m.opacity, ...dashed(m) }));
+      parts.push({ kind: 'polygon', items, bbox: bounds(items), pts: m.pts });
+      vertexHandles(m.pts);
       break;
     }
     case 'stamp': {
@@ -369,7 +406,7 @@ export function buildShapes(m, font, assets) {
       const d = G.polyPath(m.pts, closed), text = measureOf(m).label;
       const items = [];
       if (closed) items.push(path(d, { fill: m.fill || m.color, opacity: m.opacity * (m.fillOpacity ?? 0.15) }));
-      items.push(path(d, { stroke: m.color, w: m.width, opacity: m.opacity }));
+      items.push(path(d, { stroke: m.color, w: m.width, opacity: m.opacity, ...dashed(m) }));
       let at;
       if (closed) at = G.polyCentre(m.pts);
       else { const [a, b] = longestSegment(m.pts); at = besideSegment(a, b, font.width(text, m.fontSize), m.fontSize); }

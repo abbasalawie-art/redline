@@ -1,21 +1,22 @@
 // Everything around the drawing: tool rail, options bar, files, pages, export, settings.
 import { icon } from './icons.js';
-import { TEXT_TYPES, MEASURE_TYPES, measureOf, PIN_STATUS, statusOf, photosOf } from './shapes.js';
+import { TEXT_TYPES, MEASURE_TYPES, DASH_TYPES, DASHES, measureOf, PIN_STATUS, statusOf, photosOf } from './shapes.js';
 import * as store from './store.js';
 
-// The rail. An entry with several tools remembers which one was used last.
+// The rail. An entry with several tools remembers which one was used last (`shows`: and wears that tool's icon and name),
+// unless it is marked `first`, which always starts with its first tool.
 const RAIL = [
-  { id: 'select', label: 'Select', tools: ['select'] },
+  { id: 'select', label: 'Select', tools: ['select', 'lasso'], first: true },
   null,
   { id: 'cloud', label: 'Cloud', tools: ['cloud'] },
   { id: 'cloudplus', label: 'Cloud+', tools: ['cloudplus'] },
   { id: 'callout', label: 'Callout', tools: ['callout'] },
   { id: 'text', label: 'Text', tools: ['text', 'retype'] },
   null,
-  { id: 'arrow', label: 'Arrow', tools: ['arrow'] },
-  { id: 'pen', label: 'Pen', tools: ['pen'] },
+  { id: 'arrow', label: 'Arrow', tools: ['arrow', 'line', 'polyline'], shows: true },
+  { id: 'pen', label: 'Pen', tools: ['pen', 'eraser'], first: true },
   { id: 'hl', label: 'Highlight', tools: ['hl'] },
-  { id: 'rect', label: 'Shape', tools: ['rect', 'ellipse'] },
+  { id: 'rect', label: 'Shape', tools: ['rect', 'ellipse', 'polygon'], shows: true },
   null,
   { id: 'kit', label: 'Symbols', tools: ['stamp', 'sig', 'snip'], open: app => app.kit.open() },
   { id: 'pin', label: 'Pin', tools: ['pin'] },
@@ -23,15 +24,27 @@ const RAIL = [
 ];
 const MODES = {
   text: [['text', 'New text'], ['retype', 'Retype']], retype: [['text', 'New text'], ['retype', 'Retype']],
-  rect: [['rect', 'Box'], ['ellipse', 'Ellipse']], ellipse: [['rect', 'Box'], ['ellipse', 'Ellipse']],
 };
+// Sister tools behind one rail button.
+for (const set of [
+  [['select', 'Select'], ['lasso', 'Lasso']],
+  [['arrow', 'Arrow'], ['line', 'Line'], ['polyline', 'Polyline']],
+  [['pen', 'Pen'], ['eraser', 'Eraser']],
+  [['rect', 'Box'], ['ellipse', 'Ellipse'], ['polygon', 'Polygon']],
+]) for (const [t] of set) MODES[t] = set;
 // Length, Run, Area and Count share the Measure button.
 for (const t of ['dim', 'path', 'area', 'count']) MODES[t] = [['dim', 'Length'], ['path', 'Run'], ['area', 'Area'], ['count', 'Count']];
 export const TOOL_NAME = {
   select: 'Select', cloud: 'Cloud', cloudplus: 'Cloud+', callout: 'Callout', text: 'Text', retype: 'Retype', arrow: 'Arrow', pen: 'Pen',
   hl: 'Highlight', rect: 'Box', ellipse: 'Ellipse', stamp: 'Symbol', pin: 'Pin', dim: 'Length', path: 'Run', area: 'Area', sig: 'Signature', snip: 'New sticker', count: 'Count',
+  line: 'Line', polyline: 'Polyline', polygon: 'Polygon', eraser: 'Eraser', lasso: 'Lasso',
 };
-const CAN_FAVOURITE = new Set(['cloud', 'cloudplus', 'callout', 'text', 'arrow', 'pen', 'hl', 'rect', 'ellipse', 'dim', 'path', 'area']);
+const CAN_FAVOURITE = new Set(['cloud', 'cloudplus', 'callout', 'text', 'arrow', 'line', 'polyline', 'pen', 'hl', 'rect', 'ellipse', 'polygon', 'dim', 'path', 'area']);
+const PLAIN_COLOUR = new Set(['pen', 'hl', 'arrow', 'line', 'polyline', 'pin', 'sig', 'many']);        // one colour, so it is just "Colour"
+const ALIGNS = [
+  ['left', 'Left', 'alLeft'], ['centre', 'Centre', 'alCentre'], ['right', 'Right', 'alRight'],
+  ['top', 'Top', 'alTop'], ['middle', 'Middle', 'alMiddle'], ['bottom', 'Bottom', 'alBottom'],
+];
 
 export const COLORS = [
   ['#e11d2a', 'Red'], ['#ea580c', 'Orange'], ['#facc15', 'Yellow'], ['#16a34a', 'Green'], ['#0891b2', 'Teal'], ['#1d4ed8', 'Blue'],
@@ -56,29 +69,35 @@ const PROPS = {
   cloudplus: ['color', 'fill', 'fillOpacity', 'textColor', 'fontSize', 'width', 'head', 'opacity'],
   callout: ['color', 'fill', 'textColor', 'fontSize', 'width', 'head', 'border', 'opacity'],
   text: ['textColor', 'fontSize', 'fill', 'border'],
-  arrow: ['color', 'width', 'head', 'opacity'],
+  arrow: ['color', 'width', 'head', 'dash', 'opacity'],
+  line: ['color', 'width', 'dash', 'opacity'],
+  polyline: ['color', 'width', 'head', 'dash', 'opacity'],
   pen: ['color', 'width', 'opacity'],
   hl: ['color', 'width'],
-  rect: ['color', 'fill', 'fillOpacity', 'width', 'opacity'],
-  ellipse: ['color', 'fill', 'fillOpacity', 'width', 'opacity'],
+  rect: ['color', 'fill', 'fillOpacity', 'width', 'dash', 'opacity'],
+  ellipse: ['color', 'fill', 'fillOpacity', 'width', 'dash', 'opacity'],
+  polygon: ['color', 'fill', 'fillOpacity', 'width', 'dash', 'opacity'],
+  eraser: ['size'], lasso: [],
   stamp: ['mode', 'markColor', 'row', 'scale', 'rot', 'opacity'],
   pin: ['status', 'color', 'size'],
   count: ['color', 'size'],
   dim: ['color', 'width', 'fontSize'],
-  path: ['color', 'width', 'fontSize'],
-  area: ['color', 'fill', 'fillOpacity', 'width', 'fontSize'],
+  path: ['color', 'width', 'dash', 'fontSize'],
+  area: ['color', 'fill', 'fillOpacity', 'width', 'dash', 'fontSize'],
   sig: ['color', 'width'],
   retype: [], snip: [],
 };
 const LABEL = {
   color: 'Line', fill: 'Fill', fillOpacity: 'Fill', textColor: 'Text', width: 'Width', fontSize: 'Size', head: 'Arrow', border: 'Border',
-  opacity: 'Opacity', markColor: 'Colour', scale: 'Size', rot: 'Turn', size: 'Size', shape: 'Shape', status: 'Status', row: 'Row',
+  opacity: 'Opacity', markColor: 'Colour', scale: 'Size', rot: 'Turn', size: 'Size', shape: 'Shape', status: 'Status', row: 'Row', dash: 'Style',
 };
 const TIPS = {
   retype: 'Tap a line of text to retype it. Or drag a box over anything to cover it and type on top.',
   snip: 'Drag a box around what you want to keep as a sticker.',
   stamp: '',
   pin: 'Tap where the photo or note belongs.',
+  eraser: 'Rub over pen and highlighter marks to remove them.',
+  lasso: 'Draw a loop round markups to pick them. Tap one to add it or take it out.',
 };
 
 export function h(tag, attrs = {}, ...kids) {
@@ -97,6 +116,12 @@ export function h(tag, attrs = {}, ...kids) {
 const headIcon = style => {
   const tip = { closed: '<path d="M21 12l-7-4v8z" fill="currentColor"/>', open: '<path d="M14 7.500l7 4.500-7 4.500"/>', dot: '<circle cx="18.500" cy="12" r="2.800" fill="currentColor"/>', none: '' }[style] || '';
   return `<svg class="ic" width="28" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12h${style === 'closed' ? 12 : 17}"/>${tip}</svg>`;
+};
+
+/** A short sample of a line type. */
+const dashIcon = id => {
+  const p = (DASHES[id] || DASHES.solid).pattern;
+  return `<svg class="ic" width="52" height="14" viewBox="0 0 52 14" fill="none" stroke="currentColor" stroke-width="2.5"${p ? ` stroke-dasharray="${p.map(v => v * 1.25).join(' ')}"` : ''}><path d="M2 7h48"/></svg>`;
 };
 
 function ago(ts) {
@@ -127,8 +152,8 @@ export function initUI(app) {
       class: 'tool', 'data-rail': entry.id, 'aria-label': entry.label, html: `${icon(entry.id)}<span>${entry.label}</span>`,
       onclick: () => {
         // Tapping the tool already in hand puts it down again.
-        if (entry.id !== 'select' && entry.tools.includes(app.tool)) return app.setTool('select');
-        return entry.open ? entry.open(app) : app.setTool(last[entry.id] || entry.tools[0]);
+        if (entry.id === 'select' || entry.tools.includes(app.tool)) return app.setTool('select');
+        return entry.open ? entry.open(app) : app.setTool(entry.first ? entry.tools[0] : last[entry.id] || entry.tools[0]);
       },
     }));
   }
@@ -201,20 +226,22 @@ export function initUI(app) {
     else if (key === 'shape') for (const [v, name] of CLOUD_SHAPES) row.append(h('button', { class: 'chip', 'aria-pressed': String((val || 'box') === v), onclick: () => pick(v) }, name));
     else if (key === 'status') for (const [v, st] of Object.entries(PIN_STATUS)) row.append(h('button', { class: 'chip', 'aria-pressed': String((val || 'open') === v), onclick: () => pick(v) }, st.color ? swatch(st.color) : null, st.label));
     else if (key === 'row') chips(ROWS, v => (v === 1 ? 'One at a time' : `${v} in a row`));
+    else if (key === 'dash') for (const [id, d] of Object.entries(DASHES)) row.append(h('button', { class: 'chip col', 'aria-pressed': String(val === id), html: `${dashIcon(id)}<span>${d.label}</span>`, onclick: () => pick(id) }));
     return row;
   }
 
   function propButton(type, key) {
     const val = app.propValue(key);
     let label = LABEL[key];
-    if (key === 'color' && (type === 'pen' || type === 'hl' || type === 'arrow' || type === 'pin' || type === 'sig' || MEASURE_TYPES.has(type))) label = 'Colour';
+    if (key === 'color' && (PLAIN_COLOUR.has(type) || MEASURE_TYPES.has(type))) label = 'Colour';
     const lbl = h('span', { class: 'lbl' }, label);
     const b = h('button', { class: 'prop', 'data-key': key, 'aria-label': label });
-    if (key === 'color' || key === 'textColor' || key === 'fill' || key === 'markColor') b.append(swatch(val), lbl);
+    if (key === 'color' || key === 'textColor' || key === 'fill' || key === 'markColor') b.append(type === 'many' && val == null ? h('span', { class: 'sw mixed' }) : swatch(val), lbl);
     else if (key === 'width') b.append(widthLine(type === 'hl' ? val / 3 : val), lbl);
     else if (key === 'fontSize') b.append(lbl, val === 'auto' ? 'Auto' : `${Math.round(val * 10) / 10} pt`);
     else if (key === 'head') { b.innerHTML = headIcon(val); b.append(lbl); }
-    else if (key === 'opacity' || key === 'fillOpacity' || key === 'scale') b.append(lbl, pct(val));
+    else if (key === 'dash') { b.innerHTML = dashIcon(val || 'solid'); b.append(lbl); }
+    else if (key === 'opacity' || key === 'fillOpacity' || key === 'scale') b.append(lbl, val == null ? 'Mixed' : pct(val));
     else if (key === 'rot') b.append(lbl, `${val}°`);
     else if (key === 'size') b.append(lbl, (PIN_SIZES.find(s => s[0] === val) || [0, pct(val)])[1]);
     else if (key === 'shape') b.append(lbl, (CLOUD_SHAPES.find(s => s[0] === (val || 'box')) || CLOUD_SHAPES[0])[1]);
@@ -232,20 +259,45 @@ export function initUI(app) {
 
   const act = (name, label, onclick, cls = '') => h('button', { class: `prop act ${cls}`, 'aria-label': label, html: `${icon(name, 22)}<span>${label}</span>`, onclick });
 
+  /** Several markups picked at once: what they can share, and what can be done with them together. */
+  function renderMany(ms) {
+    const oneGroup = ms.every(m => m.group && m.group === ms[0].group);
+    props.append(h('div', { class: 'prop-title' }, oneGroup ? `Group of ${ms.length}` : `${ms.length} picked`));
+    for (const key of ['color', 'width', 'dash', 'opacity']) if (ms.some(m => app.sharedValue(m, key) !== undefined)) props.append(propButton('many', key));
+    const lineUp = act('alLeft', 'Line up', () => {
+      if (!pop.hidden && pop.dataset.key === 'align') return closePop();
+      pop.dataset.key = 'align';
+      const row = h('div', { class: 'pop-row' });
+      for (const [id, name, ic] of ALIGNS) row.append(h('button', { class: 'chip col', html: `${icon(ic, 22)}<span>${name}</span>`, onclick: () => app.align(id) }));
+      row.append(h('button', { class: 'chip col', html: `${icon('spreadH', 22)}<span>Space across</span>`, onclick: () => app.spread('across') }),
+        h('button', { class: 'chip col', html: `${icon('spreadV', 22)}<span>Space down</span>`, onclick: () => app.spread('down') }));
+      openPop(lineUp, row);
+    });
+    props.append(h('div', { class: 'spacer' }), h('div', { class: 'actions' },
+      lineUp,
+      oneGroup ? null : act('group', 'Group', () => app.group()),
+      ms.some(m => m.group) ? act('ungroup', 'Ungroup', () => app.ungroup()) : null,
+      act('copy', 'Copy', () => app.duplicateSelected()), act('trash', 'Delete', () => app.deleteSelected(), 'danger')));
+  }
+
   function renderProps() {
     closePop();
     props.textContent = '';
     if (!app.doc) return;
+    const many = app.picked();
+    if (many.length > 1) return renderMany(many);
     const m = app.selected(), type = m ? m.type : app.tool;
-    if (type === 'select') {
-      props.append(h('div', { class: 'tip' }, 'Tap a markup to change it. Drag empty space to move the page. Pinch to zoom.'));
+    const seg = t => h('div', { class: 'seg' }, MODES[t].map(([id, name]) => h('button', { 'aria-pressed': String(id === t), onclick: () => app.setTool(id) }, name)));
+    if (type === 'select' || type === 'lasso') {
+      props.append(seg(type), h('div', { class: 'tip' }, type === 'lasso' ? TIPS.lasso : 'Tap a markup to change it. Drag empty space to move the page. Pinch to zoom.'));
       return;
     }
     if (!m && MODES[type]) {
       // Sister tools behind one rail button.
-      props.append(h('div', { class: 'seg' }, MODES[type].map(([id, name]) => h('button', { 'aria-pressed': String(id === type), onclick: () => app.setTool(id) }, name))));
+      props.append(seg(type));
     } else {
-      props.append(h('div', { class: 'prop-title' }, m && m.type === 'stamp' ? (m.name || 'Symbol') : m && m.type === 'pin' ? `Pin ${m.n}` : m && m.type === 'count' ? `${m.label || 'Count'}: ${m.pts.length}` : TOOL_NAME[type] || ''));
+      const line = m && m.type === 'arrow' && m.head === 'none';
+      props.append(h('div', { class: 'prop-title' }, m && m.type === 'stamp' ? (m.name || 'Symbol') : m && m.type === 'pin' ? `Pin ${m.n}` : m && m.type === 'count' ? `${m.label || 'Count'}: ${m.pts.length}` : line ? 'Line' : TOOL_NAME[type] || ''));
     }
     if (!m && type === 'stamp') props.append(app.kit.currentButton());
     if (!m && type === 'sig') props.append(h('button', { class: 'prop', onclick: () => app.kit.signaturePad() }, 'New signature'));
@@ -313,7 +365,11 @@ export function initUI(app) {
       if (!entry) continue;
       const on = entry.tools.includes(app.tool);
       if (on) last[entry.id] = app.tool;
-      rail.querySelector(`[data-rail="${entry.id}"]`).setAttribute('aria-pressed', String(on));
+      const btn = rail.querySelector(`[data-rail="${entry.id}"]`);
+      btn.setAttribute('aria-pressed', String(on));
+      // A button that stands for several tools wears the one it will pick up.
+      const shown = entry.shows ? last[entry.id] || entry.tools[0] : null;
+      if (shown && btn.dataset.shown !== shown) { btn.dataset.shown = shown; btn.innerHTML = `${icon(shown)}<span>${TOOL_NAME[shown]}</span>`; btn.setAttribute('aria-label', TOOL_NAME[shown]); }
     }
     lockBtn.setAttribute('aria-pressed', String(app.lock));
     lockBtn.innerHTML = `${icon(app.lock ? 'lock' : 'unlock')}<span>${app.lock ? 'Locked' : 'Lock'}</span>`;

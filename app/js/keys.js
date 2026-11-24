@@ -38,15 +38,8 @@ export function initKeys(app) {
     d.border = border; save();
     app.setTool('text');
   }
-  function arrowTool(line) {
-    const d = app.prefs.tools.arrow, isLine = d.head === 'none';
-    if (app.tool === 'arrow' && isLine === line) return app.setTool('select');
-    if (line) { if (!isLine) d.lastHead = d.head; d.head = 'none'; } else if (isLine) d.head = d.lastHead || 'closed';
-    save();
-    app.setTool('arrow');
-  }
   function nudge(dx, dy, big) {
-    const m = app.selected();
+    const m = app.picked()[0];
     if (m) return app.nudge(dx * (big ? 10 : 1) * m.k, dy * (big ? 10 : 1) * m.k);
     const v = app.viewer.view;                                   // nothing selected: the arrows move the page
     app.viewer.setView({ tx: v.tx - dx * 60, ty: v.ty - dy * 60 }, { settle: true });
@@ -76,17 +69,21 @@ export function initKeys(app) {
   // [group, keys, what it does, action]. The list on screen (F1) is made from this same table.
   const DEFS = [
     ['Tools', ['V', 'Shift+V'], 'Select. Drag empty space to move the page', () => app.setTool('select')],
+    ['Tools', ['Shift+O'], 'Lasso: draw a loop round markups to pick them', tool('lasso')],
     ['Tools', ['T'], 'Text box', () => textTool(true)],
     ['Tools', ['W'], 'Typewriter (text with no box)', () => textTool(false)],
     ['Tools', ['Q'], 'Callout', tool('callout')],
     ['Tools', ['C'], 'Cloud', tool('cloud')],
     ['Tools', ['K'], 'Cloud+', tool('cloudplus')],
-    ['Tools', ['A'], 'Arrow', () => arrowTool(false)],
-    ['Tools', ['L'], 'Line', () => arrowTool(true)],
+    ['Tools', ['A'], 'Arrow', tool('arrow')],
+    ['Tools', ['L'], 'Line', tool('line')],
+    ['Tools', ['Shift+N'], 'Polyline', tool('polyline')],
     ['Tools', ['P'], 'Pen', tool('pen')],
+    ['Tools', ['Shift+E'], 'Eraser, for pen and highlighter', tool('eraser')],
     ['Tools', ['H'], 'Highlight', tool('hl')],
     ['Tools', ['R'], 'Rectangle', tool('rect')],
     ['Tools', ['E'], 'Ellipse', tool('ellipse')],
+    ['Tools', ['Shift+P'], 'Polygon', tool('polygon')],
     ['Tools', ['S'], 'Stamp: the Symbols tray', () => (app.tool === 'stamp' ? app.setTool('select') : app.kit.open())],
     ['Tools', ['I'], 'Image: bring in a picture', () => app.kit.picture()],
     ['Tools', ['N'], 'Note: a pin with a note and photo', tool('pin')],
@@ -108,6 +105,14 @@ export function initKeys(app) {
     ['Edit', ['Ctrl+V', 'Shift+Insert'], 'Paste in the middle of the screen', () => app.paste(false)],
     ['Edit', ['Ctrl+Shift+V'], 'Paste in place', () => app.paste(true)],
     ['Edit', ['Delete', 'Backspace'], 'Delete', () => app.deleteSelected()],
+    ['Edit', ['Ctrl+A'], 'Select everything on the page', () => app.selectAll()],
+    ['Edit', ['Shift+click'], 'Add a markup to what is picked, or take it out', null],
+    ['Edit', ['Shift+drag'], 'Pick everything inside a box', null],
+    ['Edit', ['Ctrl+G'], 'Group', () => app.group()],
+    ['Edit', ['Ctrl+Shift+G'], 'Ungroup', () => app.ungroup()],
+    ['Edit', ['Ctrl+Alt+L', 'Ctrl+Alt+R'], 'Align left, align right', null],
+    ['Edit', ['Ctrl+Alt+T', 'Ctrl+Alt+B'], 'Align top, align bottom', null],
+    ['Edit', ['Ctrl+Alt+E', 'Ctrl+Alt+M'], 'Align centre, align middle', null],
     ['Edit', ['Left', 'Right', 'Up', 'Down'], 'Nudge the selected markup (with Shift: further)', null],
     ['Edit', ['Tab'], 'Next markup', () => app.selectNext(1)],
     ['Edit', ['Shift+Tab'], 'Previous markup', () => app.selectNext(-1)],
@@ -156,6 +161,7 @@ export function initKeys(app) {
     actions.set(`Shift+${k}`, () => nudge(dx, dy, true));
   }
   actions.set('Ctrl+D', () => app.duplicateSelected());        // Redline's own: copy and paste in one
+  for (const [k, how] of [['L', 'left'], ['R', 'right'], ['T', 'top'], ['B', 'bottom'], ['E', 'centre'], ['M', 'middle']]) actions.set(`Ctrl+Alt+${k}`, () => app.align(how));
 
   function help() {
     const body = [h('p', { class: 'muted' }, 'The same keys as Bluebeam Revu, for everything Redline also does. Pressing the key of the tool in hand puts it down.')];

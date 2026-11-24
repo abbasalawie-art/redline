@@ -81,6 +81,22 @@ export function drawMarkup(g, shapes, { hit = true } = {}) {
   for (const h of hits) g.appendChild(h);
 }
 
+/** Several markups picked at once: a thin outline round each one and a dashed box round the lot. No handles. */
+export function drawPicked(g, boxes, px) {
+  g.textContent = '';
+  const pad = 3 * px, out = 9 * px;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const b of boxes) {
+    g.appendChild(el('rect', { x: r2(b.x - pad), y: r2(b.y - pad), width: r2(b.w + 2 * pad), height: r2(b.h + 2 * pad), class: 'sel-box sel-one', 'stroke-width': r2(px) }));
+    x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y); x1 = Math.max(x1, b.x + b.w); y1 = Math.max(y1, b.y + b.h);
+  }
+  if (!boxes.length) return;
+  g.appendChild(el('rect', {
+    x: r2(x0 - out), y: r2(y0 - out), width: r2(x1 - x0 + 2 * out), height: r2(y1 - y0 + 2 * out),
+    class: 'sel-box', 'stroke-width': r2(1.5 * px), 'stroke-dasharray': `${r2(5 * px)} ${r2(4 * px)}`,
+  }));
+}
+
 /** Selection outline and drag handles. `px` = page units per screen pixel. */
 export function drawSelection(g, shapes, px, { editing = false } = {}) {
   g.textContent = '';

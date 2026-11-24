@@ -1,7 +1,7 @@
 // Writes markups into a PDF (as real, editable PDF markups, or flattened into the page)
 // and reads Redline's own markups back out of a PDF it saved earlier.
 // No DOM in here: it runs the same in the browser and in Node tests.
-import { buildShapes, SUBJECT, textPad, photosOf, statusOf, pinColour, PIN_STATUS } from './shapes.js';
+import { buildShapes, SUBJECT, textPad, photosOf, statusOf, pinColour, dashPattern, PIN_STATUS } from './shapes.js';
 import { LINE_HEIGHT } from './text.js';
 
 const DATA_KEY = 'RedlineData';     // on the main markup: the full Redline record (JSON)
@@ -158,6 +158,7 @@ export async function exportPdf(PDFLib, baseBytes, markups, opts = {}) {
   const pages = doc.getPages();
   const helv = ctx.register(ctx.obj({ Type: 'Font', Subtype: 'Type1', BaseFont: 'Helvetica', Encoding: 'WinAnsiEncoding' }));
   const gsRefs = new Map();
+  const leads = new Map();          // group id → the markup that stands for the group
   const date = pdfDate(new Date());
   const asset = id => (assets && id ? assets.get(id) : null) || null;
 
@@ -197,6 +198,9 @@ export async function exportPdf(PDFLib, baseBytes, markups, opts = {}) {
     const refs = shapes.parts.map(() => ctx.nextRef());
     const mainIdx = shapes.parts.length - 1;
     const colour = m.type === 'pin' ? pinColour(m) : m.color || m.tint || '#000000';
+    // Grouped markups: the first one stands for the group and the rest point at it. Revu then moves them as one.
+    let lead = null;
+    if (m.group) { if (leads.has(m.group)) lead = leads.get(m.group); else leads.set(m.group, refs[mainIdx]); }
 
     shapes.parts.forEach((part, pi) => {
       const lw = m.width || 0;
@@ -258,7 +262,10 @@ export async function exportPdf(PDFLib, baseBytes, markups, opts = {}) {
         C: rgb(colour), AP: { N: ap },
       };
       if (m.opacity < 1) d.CA = m.opacity;
-      const bs = { W: lw, S: 'S' };
+      // A dashed line says so in its border style, with the pattern exactly as Revu writes it: that is what makes
+      // Revu show the line type and keep it when the markup is edited there.
+      const pattern = dashPattern(m);
+      const bs = pattern ? { W: lw, S: 'D', D: pattern } : { W: lw, S: 'S' };
       const verts = pts => pts.flatMap(p => tp(M, p[0], p[1])).map(r2);
       let subject = SUBJECT[m.type];
 
@@ -267,7 +274,7 @@ export async function exportPdf(PDFLib, baseBytes, markups, opts = {}) {
         d.Vertices = part.poly.flatMap(p => tp(M, p.x, p.y)).map(r2);
         d.BS = bs; d.BE = { S: 'C', I: 2 }; d.IT = 'PolygonCloud';
         if (m.fill) { d.IC = rgb(m.fill); d.FillOpacity = m.fillOpacity ?? 1; }
-        if (!isMain) { subject = 'Cloud'; d.IRT = refs[mainIdx]; d.RT = 'Group'; }
+        if (!isMain) { subject = 'Cloud'; d.IRT = lead || refs[mainIdx]; d.RT = 'Group'; }
       } else if (part.kind === 'rect' || part.kind === 'ellipse') {
         d.Subtype = part.kind === 'rect' ? 'Square' : 'Circle';
         d.BS = bs;
@@ -284,8 +291,13 @@ export async function exportPdf(PDFLib, baseBytes, markups, opts = {}) {
         d.Subtype = part.kind === 'polygon' ? 'Polygon' : 'PolyLine';
         d.Vertices = verts(part.pts);
         d.BS = bs;
-        d.Contents = PDFHexString.fromText(part.measure || '');
-        if (part.kind === 'polygon') { d.IC = rgb(m.fill || colour); d.FillOpacity = m.fillOpacity ?? 0.15; }
+        if (part.measure) d.Contents = PDFHexString.fromText(part.measure);
+        if (part.kind === 'polygon' && part.measure) { d.IC = rgb(m.fill || colour); d.FillOpacity = m.fillOpacity ?? 0.15; }
+        else if (part.kind === 'polygon' && m.fill) { d.IC = rgb(m.fill); d.FillOpacity = m.fillOpacity ?? 1; }
+        if (part.kind === 'polyline' && part.head && part.head !== 'none') {
+          d.LE = ['None', LE_NAME[part.head]];
+          if (part.head === 'closed' || part.head === 'dot') d.IC = rgb(colour);
+        }
       } else if (part.kind === 'ink') {
         d.Subtype = 'Ink';
         d.InkList = part.strokes.map(verts);
@@ -327,6 +339,7 @@ export async function exportPdf(PDFLib, baseBytes, markups, opts = {}) {
         }
       }
       d.Subj = PDFHexString.fromText(subject);
+      if (isMain && lead) { d.IRT = lead; d.RT = 'Group'; }
       if (isMain) {
         const record = { v: 1, m, fp: { d: date, r: rect } };
         d[DATA_KEY] = PDFHexString.fromText(JSON.stringify(record, roundJson));

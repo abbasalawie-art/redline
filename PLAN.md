@@ -116,6 +116,11 @@ Files:
 | **Symbols in a row, and snap** | Drag to place N symbols evenly along a line. Lines click to level and upright; symbols and pins click into line with each other. |
 | **Compare revisions** | Another PDF laid over the open one: same in grey, added in blue, removed in red. |
 | **Backup and restore** | Everything on the device in one zip file, and back again without deleting anything. |
+| **Line, Polyline, Polygon** | A plain line of its own, a line through any number of points (with an arrowhead if wanted) and a many-sided shape, beside Arrow and Shape. |
+| **Line types** | Dotted, short dash, dashed, dash dot, centre line and long short on lines and shapes: Revu's own six dashed styles, written so Revu names them. |
+| **Lasso and several at once** | Loop round markups to pick them (Shift+click, Shift+drag and Ctrl+A on a PC). Move, recolour, copy or delete them together. |
+| **Line up and group** | Align left, centre, right, top, middle, bottom; space evenly; group so they move as one (Revu sees the group). |
+| **Eraser** | Rubs out parts of pen and highlighter strokes. |
 | **Your own stickers** | Drag a box around anything on any PDF: it becomes a sticker. Or bring in a picture. |
 | **Stamps** | Words in a box (DEFECT, NOT INSTALLED, RELOCATE and so on), plus your own. |
 | **Saved tools** | The star keeps a tool with its colours and sizes for one-tap reuse. |
@@ -217,13 +222,16 @@ Coordinates are in page points as displayed (top-left origin), converted to PDF 
 | Cloud + text | Polygon (cloudy) + FreeText callout, grouped | Cloud+ (target) or cloud + callout |
 | Callout | FreeText with callout line and line ending | Callout |
 | Text | FreeText | Text Box |
-| Arrow | Line with line ending | Arrow / Line |
+| Arrow, Line | Line, with or without a line ending | Arrow / Line |
+| Polyline, Polygon | PolyLine (with a line ending if it has a head), Polygon | Polyline / Polygon |
 | Pen, Highlighter | Ink | Pen / Highlight |
 | Rectangle, Ellipse | Square, Circle | Rectangle / Ellipse |
 | Symbol, sticker, stamp | Stamp, subject = the symbol's name | Stamp (counts by subject) |
 | Pin | Stamp, comment = number and note | Stamp |
 | Length, Run, Area | Line, PolyLine, Polygon, comment = the value | Line / Polyline / Polygon |
 | Signature | Ink | Pen |
+
+A dashed line is written with `/BS << /S /D /D [...] >>` using exactly one of Revu's six patterns (`[2 2]`, `[3 3]`, `[4 4]`, `[4 3 2 3]`, `[4 3 16 3]`, `[8 4 4 4]`): any other pattern and Revu calls the line solid. Grouped markups point at the first of the group with `/IRT` and `/RT /Group`.
 
 Pictures and symbol drawings that the markups use are kept inside the exported PDF as well, so the file opens on another device with everything editable. Photo pages added at export are taken off again when the file is re-opened.
 

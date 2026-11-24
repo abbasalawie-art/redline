@@ -90,7 +90,7 @@ export function initReport(app) {
       body.push(h('h3', {}, `Notes · ${g.notes.length}`), h('div', { class: 'rows' }, g.notes.map(m => row(tag(TOOL_NAME[m.type]), firstLine(m.text), m))));
     }
     if (g.rest.length) {
-      body.push(h('h3', {}, `Other markups · ${g.rest.length}`), h('div', { class: 'rows' }, g.rest.map(m => row(tag(TOOL_NAME[m.type] || m.type), ' ', m))));
+      body.push(h('h3', {}, `Other markups · ${g.rest.length}`), h('div', { class: 'rows' }, g.rest.map(m => row(tag(m.type === 'arrow' && m.head === 'none' ? 'Line' : TOOL_NAME[m.type] || m.type), ' ', m))));
     }
     app.ui.openSheet('Markups', body, { wide: true });
   }

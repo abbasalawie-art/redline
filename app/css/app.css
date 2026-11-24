@@ -111,9 +111,11 @@ body[data-doc="0"] #layer, body[data-doc="0"] #btn-fit { display: none; }
 g.editing .mk-text { visibility: hidden; }
 .hit { fill: none; stroke: transparent; stroke-width: var(--hit, 28px); stroke-linecap: round; stroke-linejoin: round; pointer-events: stroke; }
 .hit-fill { fill: transparent; pointer-events: all; }
-#stage:not([data-tool="select"]) .hit { pointer-events: none; }
+#stage:not([data-tool="select"]):not([data-tool="lasso"]) .hit { pointer-events: none; }
 #draft { pointer-events: none; }
 .sel-box { fill: none; stroke: #2563eb; pointer-events: none; }
+.sel-one { opacity: .6; }
+.sw.mixed { background: conic-gradient(#e11d2a, #facc15, #16a34a, #1d4ed8, #7c3aed, #e11d2a); }
 .handle { fill: #fff; stroke: #2563eb; pointer-events: none; }
 .handle-hit { fill: transparent; pointer-events: all; cursor: grab; }
 
