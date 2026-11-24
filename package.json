@@ -1,0 +1,9 @@
+{
+  "name": "redline",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node tools/serve.mjs",
+    "test": "node tests/export-test.mjs"
+  }
+}

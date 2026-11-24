@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Redline</title>
+<meta name="description" content="Simple PDF markup for site work: clouds, callouts, arrows and text.">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Redline">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)">
+<meta name="theme-color" content="#1a1d23" media="(prefers-color-scheme: dark)">
+<meta name="format-detection" content="telephone=no">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="stylesheet" href="css/app.css">
+</head>
+<body data-doc="0">
+
+<div id="app">
+  <header id="topbar">
+    <button class="tb" id="btn-files" aria-label="Files"><span data-icon="files"></span><span class="tb-label">Files</span></button>
+    <div id="doc-name"></div>
+    <div class="tb-group">
+      <button class="tb icon wide-only" id="btn-prev" aria-label="Previous page"><span data-icon="prev"></span></button>
+      <button class="tb" id="btn-pages" aria-label="Pages"><span id="page-label"></span></button>
+      <button class="tb icon wide-only" id="btn-next" aria-label="Next page"><span data-icon="next"></span></button>
+    </div>
+    <div class="tb-group">
+      <button class="tb icon" id="btn-undo" aria-label="Undo"><span data-icon="undo"></span></button>
+      <button class="tb icon" id="btn-redo" aria-label="Redo"><span data-icon="redo"></span></button>
+    </div>
+    <button class="tb icon" id="btn-more" aria-label="Settings"><span data-icon="more"></span></button>
+    <button class="tb primary" id="btn-export" aria-label="Export"><span data-icon="share"></span><span class="tb-label">Export</span></button>
+  </header>
+
+  <nav id="rail" aria-label="Tools"></nav>
+
+  <main id="stage" data-tool="select">
+    <div id="layer" class="loading">
+      <canvas id="base"></canvas>
+      <canvas id="detail"></canvas>
+      <svg id="overlay" xmlns="http://www.w3.org/2000/svg"><g id="marks"></g><g id="draft"></g><g id="sel"></g></svg>
+    </div>
+    <textarea id="editor" spellcheck="false" autocomplete="off" autocorrect="off" aria-label="Markup text"></textarea>
+    <button id="btn-fit" class="stage-ui" aria-label="Fit page to screen"><span data-icon="fit"></span></button>
+    <div id="hint" hidden></div>
+    <div id="toast" hidden></div>
+  </main>
+
+  <footer id="props"></footer>
+</div>
+
+<div id="home" hidden></div>
+<div id="pop" hidden></div>
+<div id="sheet" hidden></div>
+<div id="busy" hidden><div class="spinner"></div><span id="busy-text"></span></div>
+<input type="file" id="file" accept="application/pdf,.pdf" hidden>
+
+<noscript><p style="padding:24px;font:16px sans-serif">Redline needs JavaScript turned on.</p></noscript>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

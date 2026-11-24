@@ -1,0 +1,7 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "redline", "runtimeExecutable": "node", "runtimeArgs": ["tools/serve.mjs"], "port": 5173 },
+    { "name": "redline-subfolder", "runtimeExecutable": "node", "runtimeArgs": ["tools/serve.mjs", "--base", "/redline", "--port", "5174"], "port": 5174 }
+  ]
+}
