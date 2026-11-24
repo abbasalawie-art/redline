@@ -349,6 +349,25 @@ table.counts { width: 100%; border-collapse: collapse; -webkit-user-select: text
 #btn-save.unsaved::after { content: ""; position: absolute; top: 8px; right: 8px; width: 9px; height: 9px; border-radius: 50%; background: var(--danger); box-shadow: 0 0 0 2px var(--panel); }
 table.keys td { text-align: left; padding: 7px 10px; }
 table.keys td:last-child { text-align: right; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.seg.wide { display: flex; flex-wrap: wrap; width: 100%; margin-bottom: 10px; }
+.seg.wide button { flex: 1 1 auto; }
+.photo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.photo-cell img { display: block; width: 100%; height: 120px; object-fit: cover; border-radius: 10px; margin-bottom: 6px; background: var(--soft); }
+.photo-cell .row.tight { margin-bottom: 0; }
+.photo-cell .btn.slim { flex: 1 1 auto; min-height: 38px; padding: 0 8px; font-size: 13px; }
+.photo-pad { display: block; max-width: 100%; max-height: 52vh; width: auto; height: auto; margin: 0 auto 12px; border-radius: 10px; touch-action: none; cursor: crosshair; }
+.logo-box { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.logo-box img { max-height: 54px; max-width: 180px; background: #fff; border: 1px solid var(--line); border-radius: 8px; padding: 4px; }
+.pin-dot { min-width: 28px; height: 28px; padding: 0 6px; display: inline-grid; place-items: center; border-radius: 99px; background: var(--c, var(--accent)); color: #fff; font-size: 13px; }
+.row-ic { display: inline-flex; align-items: center; gap: 6px; }
+#comparebar {
+  position: absolute; left: 12px; bottom: 12px; z-index: 6; display: flex; align-items: center; flex-wrap: wrap; gap: 4px 12px; max-width: calc(100% - 84px);
+  padding: 6px 6px 6px 14px; border-radius: 16px; background: var(--panel); border: 1px solid var(--line); box-shadow: 0 4px 14px rgba(0, 0, 0, .25); font-size: 13px;
+}
+.cmp-name { font-weight: 700; max-width: 40vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cmp-key { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); white-space: nowrap; }
+.cmp-key .sw { width: 14px; height: 14px; }
+.home-link { margin-top: 18px; border: 0; background: transparent; color: var(--accent); font-weight: 600; padding: 10px 4px; }
 .page-tools { margin-bottom: 14px; }
 .page-tools .muted { margin-bottom: 8px; }
 .choice.with-icon { flex-direction: row; align-items: center; gap: 14px; }

@@ -4,7 +4,7 @@ import { normRect, simplify, clamp, polyArea } from './geometry.js';
 import { MAX_SCALE } from './viewer.js';
 
 const clone = o => JSON.parse(JSON.stringify(o));
-const KEEP_DRAWING = new Set(['pen', 'hl', 'stamp']);      // these never drop back to Select
+const KEEP_DRAWING = new Set(['pen', 'hl', 'stamp', 'count']);      // these never drop back to Select
 const MARQUEE = new Set(['snip', 'retype']);               // drag a box that is not itself a markup
 const FOLLOW = new Set(['stamp', 'sig', 'pin']);           // the markup rides under the finger until it is let go
 
@@ -16,6 +16,7 @@ export function initTools(app) {
   let g = null;                     // the gesture in progress
   let pendingNote = null;           // id of a cloud waiting for its note position
   let poly = null;                  // a shape being tapped out point by point: { m, tool, closed }
+  let counting = null;              // id of the count that taps are adding to
   let penDown = false, lastPen = 0;
 
   const view = () => app.viewer.view;
@@ -27,12 +28,53 @@ export function initTools(app) {
   const touches = () => [...pointers.values()].filter(p => p.type === 'touch');
   /** Tools where each tap adds a corner. */
   const tapsPoints = t => t === 'path' || t === 'area' || (t === 'cloud' && app.prefs.tools.cloud.shape === 'poly');
+  const r2 = n => Math.round(n * 100) / 100;
+
+  // ---- straight and level -------------------------------------------------
+  const snapOn = () => app.prefs.snap !== false;
+  /** A line from a to b that is within a few degrees of level or upright is made exactly so. */
+  function snapLine(a, b) {
+    if (!snapOn()) return b;
+    const dx = Math.abs(b.x - a.x), dy = Math.abs(b.y - a.y), tol = Math.tan((4 * Math.PI) / 180);
+    if (dx && dy <= dx * tol) return { x: b.x, y: a.y };
+    if (dy && dx <= dy * tol) return { x: a.x, y: b.y };
+    return b;
+  }
+  const centreOf = m => (m.type === 'pin' ? m.p : { x: m.rect.x + m.rect.w / 2, y: m.rect.y + m.rect.h / 2 });
+  /** A symbol or pin that is nearly in line with another one clicks into line. Returns the point and the guide lines to show. */
+  function alignTo(p, skipId) {
+    const guides = [];
+    if (!snapOn()) return { p, guides };
+    const tol = 7 / view().scale;
+    let bx = null, by = null;
+    for (const o of app.markups) {
+      if (o.page !== app.doc.pageIndex || o.id === skipId || (o.type !== 'stamp' && o.type !== 'pin')) continue;
+      const c = centreOf(o), dx = Math.abs(c.x - p.x), dy = Math.abs(c.y - p.y);
+      if (dx < tol && (!bx || dx < bx.d)) bx = { d: dx, c };
+      if (dy < tol && (!by || dy < by.d)) by = { d: dy, c };
+    }
+    const q = { x: bx ? bx.c.x : p.x, y: by ? by.c.y : p.y };
+    if (bx) guides.push([bx.c, q]);
+    if (by) guides.push([by.c, q]);
+    return { p: q, guides };
+  }
+  const guideMarkups = guides => guides.map(([a, b]) => ({ id: 'guide', type: 'arrow', k: 1, head: 'none', color: '#2563eb', width: 1 / view().scale, opacity: 0.9, p1: a, p2: b }));
+
+  /** The symbols a row drag would place: `row` of them, evenly spaced from where the drag began to where it is now. */
+  function rowOf(gest) {
+    const { m, start, rowEnd, row } = gest, out = [];
+    for (let i = 0; i < row; i++) {
+      const t = i / (row - 1), cx = start.x + (rowEnd.x - start.x) * t, cy = start.y + (rowEnd.y - start.y) * t;
+      out.push({ ...clone(m), id: `row${i}`, rect: { ...m.rect, x: cx - m.rect.w / 2, y: cy - m.rect.h / 2 } });
+    }
+    return out;
+  }
 
   // ---- gestures -----------------------------------------------------------
 
   function abortGesture() {
     if (!g) return;
-    if (g.kind === 'draw') app.clearDraft();
+    if (g.kind === 'draw' || g.kind === 'move') app.clearDraft();
     if ((g.kind === 'move' || g.kind === 'handle') && g.moved) {
       Object.assign(g.m, clone(g.orig));
       app.dropUndo();
@@ -109,8 +151,15 @@ export function initTools(app) {
       else m = { ...base, rect: { x: p.x, y: p.y, w: 0, h: 0 } };          // cloud, cloudplus, rect, ellipse
     }
     app.select(null);
-    g = { kind: 'draw', tool, m, start: p, sx: e.clientX, sy: e.clientY, free };
-    if (m.pts || FOLLOW.has(tool)) app.renderDraft(free ? { ...m, type: 'pen' } : m);
+    g = { kind: 'draw', tool, m, start: p, sx: e.clientX, sy: e.clientY, free, row: tool === 'stamp' ? Math.max(1, app.prefs.tools.stamp.row || 1) : 1, rowEnd: null, guides: null };
+    if (tool === 'stamp' || tool === 'pin') {
+      // Even a plain tap clicks into line with the symbols already there.
+      const al = alignTo(p, null);
+      if (tool === 'pin') m.p = al.p; else m.rect = { ...m.rect, x: al.p.x - m.rect.w / 2, y: al.p.y - m.rect.h / 2 };
+      g.guides = al.guides;
+    }
+    if (g.guides && g.guides.length) app.renderDrafts([m, ...guideMarkups(g.guides)]);
+    else if (m.pts || FOLLOW.has(tool)) app.renderDraft(free ? { ...m, type: 'pen' } : m);
   }
 
   function updateDraw(e) {
@@ -122,11 +171,19 @@ export function initTools(app) {
         if (Math.hypot(q.x - last[0], q.y - last[1]) * view().scale >= 0.7) m.pts.push([q.x, q.y]);
       }
     } else if (m.type === 'pin') {
-      m.p = p;
+      const al = alignTo(p, null);
+      m.p = al.p; g.guides = al.guides;
+    } else if (m.type === 'stamp' && g.row > 1 && Math.hypot(e.clientX - g.sx, e.clientY - g.sy) >= 12) {
+      // Dragging with Row on: the symbol repeats from where the drag began to here.
+      g.rowEnd = snapLine(g.start, p);
+      return app.renderDrafts(rowOf(g));
     } else if (m.type === 'stamp' || m.type === 'sig') {
-      m.rect = { ...m.rect, x: p.x - m.rect.w / 2, y: p.y - m.rect.h / 2 };
+      g.rowEnd = null;
+      const al = m.type === 'stamp' ? alignTo(p, null) : { p, guides: [] };
+      m.rect = { ...m.rect, x: al.p.x - m.rect.w / 2, y: al.p.y - m.rect.h / 2 };
+      g.guides = al.guides;
     } else if (m.type === 'arrow' || m.type === 'dim') {
-      m.p2 = p;
+      m.p2 = snapLine(m.p1, p);
     } else if (m.type === 'callout') {
       const dx = p.x - m.tip.x, dy = p.y - m.tip.y;
       m.box.ax = p.x; m.box.ay = p.y;
@@ -136,7 +193,8 @@ export function initTools(app) {
     } else {
       m.rect = normRect(g.start, p);
     }
-    app.renderDraft(g.free ? { ...m, type: 'pen' } : m);
+    if (g.guides && g.guides.length) app.renderDrafts([m, ...guideMarkups(g.guides)]);
+    else app.renderDraft(g.free ? { ...m, type: 'pen' } : m);
   }
 
   function finishDraw(e) {
@@ -144,6 +202,13 @@ export function initTools(app) {
     const dragPx = Math.hypot(e.clientX - g.sx, e.clientY - g.sy);
     app.clearDraft();
 
+    if (tool === 'stamp' && g.rowEnd) {
+      const list = rowOf(g).map(c => ({ ...c, id: newId() }));
+      app.pushUndo();
+      app.markups.push(...list);
+      app.changed();
+      return app.ui.toast(`${list.length} placed in a row`);
+    }
     if (tool === 'snip') {
       if (m.rect.w * s < 12 || m.rect.h * s < 12) return app.ui.toast('Drag a box around what you want as a sticker');
       return app.kit.snip(m.rect);
@@ -238,7 +303,9 @@ export function initTools(app) {
   }
 
   function addPolyPoint(e) {
-    const p = onPage(pagePt(e)), s = view().scale;
+    let p = onPage(pagePt(e));
+    const s = view().scale;
+    if (poly) { const l = poly.m.pts[poly.m.pts.length - 1]; p = snapLine({ x: l[0], y: l[1] }, p); }
     if (!poly) {
       const tool = app.tool;
       poly = { tool, closed: tool !== 'path', m: { id: newId(), page: app.doc.pageIndex, type: tool, ...app.newStyle(tool), pts: [[p.x, p.y]] } };
@@ -253,6 +320,21 @@ export function initTools(app) {
       pts.push([p.x, p.y]);
     }
     drawPoly();
+  }
+
+  /** The count tool: each tap leaves a tick, and the ticks of one go add up to one count. */
+  function addCount(e) {
+    const p = onPage(pagePt(e)), d = app.prefs.tools.count;
+    let m = counting ? app.getMarkup(counting) : null;
+    if (m && (m.type !== 'count' || m.page !== app.doc.pageIndex)) m = null;
+    app.pushUndo();
+    if (m) m.pts.push([r2(p.x), r2(p.y)]);
+    else {
+      m = { id: newId(), page: app.doc.pageIndex, type: 'count', k: app.doc.pageInfo.k, color: d.color, size: d.size ?? 1, opacity: 1, label: d.label || '', pts: [[r2(p.x), r2(p.y)]] };
+      app.markups.push(m);
+      counting = m.id;
+    }
+    app.changed();
   }
 
   function polyUndo() {
@@ -299,7 +381,7 @@ export function initTools(app) {
     const fingerPans = e.pointerType === 'touch' && app.penSeen && !app.prefs.fingerDraws;
     if (app.tool === 'select') startSelect(e, false);
     else if (fingerPans) startSelect(e, true);
-    else if (tapsPoints(app.tool)) { const v = view(); g = { kind: 'polytap', sx: e.clientX, sy: e.clientY, tx: v.tx, ty: v.ty, moved: false }; }
+    else if (app.tool === 'count' || tapsPoints(app.tool)) { const v = view(); g = { kind: app.tool === 'count' ? 'counttap' : 'polytap', sx: e.clientX, sy: e.clientY, tx: v.tx, ty: v.ty, moved: false }; }
     else startDraw(e, app.tool);
   }
 
@@ -307,7 +389,7 @@ export function initTools(app) {
     const p = pointers.get(e.pointerId);
     if (!p) {
       // A mouse hovering while a shape is being tapped out: show where the next line would go.
-      if (poly && e.pointerType === 'mouse' && e.buttons === 0 && !e.target.closest('.stage-ui')) { const q = onPage(pagePt(e)); drawPoly([q.x, q.y]); }
+      if (poly && e.pointerType === 'mouse' && e.buttons === 0 && !e.target.closest('.stage-ui')) { const l = poly.m.pts[poly.m.pts.length - 1], q = snapLine({ x: l[0], y: l[1] }, onPage(pagePt(e))); drawPoly([q.x, q.y]); }
       return;
     }
     p.x = e.clientX; p.y = e.clientY;
@@ -318,6 +400,7 @@ export function initTools(app) {
       case 'pinch': updatePinch(); break;
       case 'pan':
       case 'polytap':
+      case 'counttap':
         if (!g.moved && Math.hypot(dxs, dys) < (g.kind === 'pan' ? 4 : 8)) return;
         g.moved = true;
         app.viewer.setView({ tx: g.tx + dxs, ty: g.ty + dys });
@@ -328,6 +411,12 @@ export function initTools(app) {
         const q = pagePt(e);
         Object.assign(g.m, clone(g.orig));
         translate(g.m, q.x - g.start.x, q.y - g.start.y, g.role === 'box' ? 'box' : null);
+        if (g.m.type === 'stamp' || g.m.type === 'pin') {
+          // Click into line with the other symbols on the page.
+          const c = centreOf(g.m), al = alignTo(c, g.m.id);
+          translate(g.m, al.p.x - c.x, al.p.y - c.y);
+          if (al.guides.length) app.renderDrafts(guideMarkups(al.guides)); else app.clearDraft();
+        }
         app.renderOne(g.m);
         app.renderSelection();
         break;
@@ -344,6 +433,7 @@ export function initTools(app) {
           const w = Math.max(3, r.w * f), hh = Math.max(3, r.h * f);
           g.m.rect = { x: c.x - w / 2, y: c.y - hh / 2, w, h: hh };
         } else dragHandle(g.m, g.id, g.id === 'rot' ? pagePt(e) : onPage(pagePt(e)), tb);
+        if ((g.id === 'p1' || g.id === 'p2') && (g.m.type === 'arrow' || g.m.type === 'dim')) g.m[g.id] = snapLine(g.id === 'p1' ? g.m.p2 : g.m.p1, g.m[g.id]);
         app.renderOne(g.m);
         app.renderSelection();
         break;
@@ -373,7 +463,11 @@ export function initTools(app) {
       case 'polytap':
         if (done.moved) app.viewer.settle(); else addPolyPoint(e);
         break;
+      case 'counttap':
+        if (done.moved) app.viewer.settle(); else addCount(e);
+        break;
       case 'move':
+        app.clearDraft();
         if (done.moved) app.changed();
         else if (done.wasSel && TEXT_TYPES.has(done.m.type) && done.role === 'box') app.startEdit(done.m);
         else if (done.wasSel && done.m.type === 'pin') app.pins.open(done.m);
@@ -415,6 +509,8 @@ export function initTools(app) {
 
   app.tools = {
     cancelPending, abort: abortGesture, polyDone: finishPoly, polyUndo,
+    resetCount: () => { counting = null; }, continueCount: id => { counting = id; },
+    get counting() { const m = counting ? app.getMarkup(counting) : null; return m && m.type === 'count' ? m : null; },
     get pending() { return pendingNote; }, get tapping() { return !!poly; },
   };
 }

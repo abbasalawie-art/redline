@@ -20,8 +20,10 @@ import { initSearch } from './search.js';
 import { initReport } from './report.js';
 import { initFiles } from './files.js';
 import { initKeys } from './keys.js';
+import { initBackup } from './backup.js';
+import { initCompare } from './compare.js';
 
-const VERSION = '0.3.0';
+const VERSION = '0.4.0';
 const asset = p => new URL(p, import.meta.url).href;
 pdfjs.GlobalWorkerOptions.workerSrc = asset('../vendor/pdfjs/pdf.worker.min.mjs');
 
@@ -36,7 +38,8 @@ const TOOL_DEFAULTS = {
   hl: { color: '#facc15', width: 14, opacity: 0.45 },
   rect: { color: RED, fill: null, fillOpacity: 0.25, width: 2, opacity: 1 },
   ellipse: { color: RED, fill: null, fillOpacity: 0.25, width: 2, opacity: 1 },
-  stamp: { lib: null, scale: 1, rot: 0, mode: 'markup', markColor: RED, altColor: '#db2777', opacity: 1 },
+  stamp: { lib: null, scale: 1, rot: 0, mode: 'markup', markColor: RED, altColor: '#db2777', opacity: 1, row: 1 },
+  count: { color: '#16a34a', size: 1, label: '' },
   pin: { color: RED, size: 1, opacity: 1 },
   dim: { color: BLUE, width: 1.5, fontSize: 'auto', opacity: 1 },
   path: { color: BLUE, width: 1.5, fontSize: 'auto', opacity: 1 },
@@ -53,7 +56,8 @@ const app = {
   markups: [], sel: null, tool: 'select', lock: false, editing: null, penSeen: false,
   undoStack: [], redoStack: [],
   prefs: {
-    author: '', fingerDraws: false, lastDoc: null, signature: null, favourites: [], stamps: null, ...saved,
+    author: '', fingerDraws: false, lastDoc: null, signature: null, favourites: [], stamps: null, snap: true,
+    report: { title: 'Site report', company: '', logo: null }, ...saved,
     tools: Object.fromEntries(Object.entries(TOOL_DEFAULTS).map(([k, v]) => [k, { ...v, ...((saved.tools || {})[k] || {}) }])),
   },
 };
@@ -85,13 +89,18 @@ app.renderSelection = () => {
   drawSelection(app.el.sel, show ? app.shapesOf(m) : null, 1 / app.viewer.view.scale, { editing: !!m && app.editing === m.id });
 };
 app.renderDraft = m => drawMarkup(app.el.draft, app.shapesOf(m), { hit: false });
+/** Several things at once in the draft layer: a row of symbols, or a symbol and its guide lines. */
+app.renderDrafts = list => {
+  app.el.draft.textContent = '';
+  for (const m of list) { const g = el('g'); app.el.draft.appendChild(g); drawMarkup(g, app.shapesOf(m), { hit: false }); }
+};
 app.clearDraft = () => { app.el.draft.textContent = ''; };
 
 // ---- changes, undo ----------------------------------------------------------
 let saveTimer = 0;
 const metaOf = () => ({
   id: app.doc.id, name: app.doc.name, updated: Date.now(), pageCount: app.doc.pageCount, pageIndex: app.doc.pageIndex,
-  markups: app.markups, writable: app.doc.writable, srcSize: app.doc.srcSize, form: app.doc.form, scale: app.doc.scale,
+  markups: app.markups, writable: app.doc.writable, srcSize: app.doc.srcSize, form: app.doc.form, scale: app.doc.scale, job: app.doc.job,
   dirty: !!app.doc.dirty, handle: app.doc.handle || undefined, fileTime: app.doc.fileTime || undefined,
   fp: app.doc.fp || undefined, changedAt: app.doc.changedAt || undefined,
 });
@@ -139,6 +148,7 @@ app.setTool = t => {
   if (app.editing) app.commitEdit();
   app.tools.cancelPending();
   app.ui.hint(null);
+  if (t !== app.tool) app.tools.resetCount();
   app.tool = t;
   app.el.stage.dataset.tool = t;
   if (t !== 'select') app.sel = null;
@@ -250,6 +260,7 @@ app.propValue = key => {
   if (key === 'fillOpacity') return m.fillOpacity ?? (m.type === 'area' ? 0.15 : 1);
   if (key === 'scale') return m.nw ? Math.round((m.rect.w / m.nw) * 100) / 100 : 1;
   if (key === 'rot') return m.rot || 0;
+  if (key === 'status') return m.status || 'open';
   if (key === 'mode' && m.type === 'stamp') return m.tint ? 'markup' : 'design';
   if (key === 'markColor' && m.type === 'stamp') return m.tint || app.prefs.tools.stamp.markColor;
   if (key === 'size') return m.size ?? 1;
@@ -274,6 +285,7 @@ app.setProp = (key, value) => {
   if (!m) { if (key === 'shape') app.tools.cancelPending({ discard: true }); return app.ui.refresh(); }
   app.pushUndo();
   if (key === 'width') m.width = value * m.k;
+  else if (key === 'status') { m.status = value; m.statusAt = Date.now(); }
   else if (key === 'fontSize') m.fontSize = value === 'auto' ? (MEASURE_TYPES.has(m.type) ? 10 : 12) * m.k : value;
   else if (key === 'scale') {
     const r = m.rect, cx = r.x + r.w / 2, cy = r.y + r.h / 2, w = (m.nw || r.w) * value, h = (m.nh || r.h) * value;
@@ -328,7 +340,7 @@ async function showDoc(meta, bytes, pdf) {
   const doc = {
     id: meta.id, name: meta.name, bytes, pdf: null, pageCount: 0, pageIndex: 0, pageInfo: null,
     writable: meta.writable !== false, password: meta.password, srcSize: meta.srcSize,
-    form: meta.form || {}, scale: { def: null, pages: {}, ...(meta.scale || {}) },
+    form: meta.form || {}, scale: { def: null, pages: {}, ...(meta.scale || {}) }, job: { number: '', address: '', ...(meta.job || {}) },
     // dirty = it has changes that are not in any file yet. Drawings from before this was tracked count as changed if marked up.
     dirty: meta.dirty ?? (meta.markups || []).length > 0, handle: meta.handle || null, fileTime: meta.fileTime || null,
     fp: meta.fp || null, changedAt: meta.changedAt || meta.updated || null,
@@ -345,6 +357,7 @@ async function showDoc(meta, bytes, pdf) {
   app.markups = meta.markups || [];
   app.sel = null; app.undoStack = []; app.redoStack = [];
   app.tool = 'select'; app.el.stage.dataset.tool = 'select';
+  if (app.compare) app.compare.stop();
   app.viewer.setDocument(doc.pdf);
   app.search.reset();
   app.forms.reset();
@@ -492,6 +505,7 @@ app.goPage = async i => {
   app.tools.cancelPending();
   const doc = app.doc;
   doc.pageIndex = clamp(i, 0, doc.pageCount - 1);
+  app.tools.resetCount();
   app.sel = null;
   app.el.marks.textContent = ''; groups.clear(); app.el.sel.textContent = '';
   app.el.fields.textContent = ''; app.el.found.textContent = '';
@@ -542,6 +556,8 @@ async function start() {
   initReport(app);
   initFiles(app);
   initKeys(app);
+  initBackup(app);
+  initCompare(app);
   app.ui.refresh();
 
   $('file').addEventListener('change', async e => {

@@ -109,6 +109,13 @@ Files:
 | **Markup / Design switch** | Markup places symbols in the markup colour so they stand apart from the drawing; Design places them as they are on the legend. One switch, in the tray and in the options bar; a placed symbol can be switched afterwards. A group the legend already draws in the markup colour (dry fire, red) marks up in a second colour (pink). |
 | **PC as well as iPad** | The same app in Chrome or Edge, installable. On a PC it opens a PDF from its folder (and from *Open with*), and Ctrl+S saves the markups back into that same file. Each device recognises a drawing it already has and works out which copy is newer. |
 | **Revu's keyboard shortcuts** | The same keys as Revu for every tool and command Redline shares with it. F1 lists them. |
+| **Pin status** | Open, Fixed, Not accepted, with its own colour and date. The list filters by it and the report groups by it. |
+| **Several photos, drawn on** | Any number of photos on a pin, and a pad to draw on a photo before it is kept. |
+| **Report details** | Logo, title, job number, address, author and company at the top of the site report. |
+| **Count tool** | Tap each item on the drawing; ticks and a running total. Counts sit beside symbol counts in the list and the report. |
+| **Symbols in a row, and snap** | Drag to place N symbols evenly along a line. Lines click to level and upright; symbols and pins click into line with each other. |
+| **Compare revisions** | Another PDF laid over the open one: same in grey, added in blue, removed in red. |
+| **Backup and restore** | Everything on the device in one zip file, and back again without deleting anything. |
 | **Your own stickers** | Drag a box around anything on any PDF: it becomes a sticker. Or bring in a picture. |
 | **Stamps** | Words in a box (DEFECT, NOT INSTALLED, RELOCATE and so on), plus your own. |
 | **Saved tools** | The star keeps a tool with its colours and sizes for one-tap reuse. |
@@ -176,6 +183,8 @@ iPad app/
       search.js         find text, retype, text to Word
       report.js         markups list, symbol counts, site report
       office.js         writes Word and Excel files
+      backup.js         backup and restore of everything on the device
+      compare.js        compare two revisions
       files.js          PC: open a PDF from its folder, save back into it
       keys.js           keyboard shortcuts (Revu's)
       store.js          documents, pictures, the tray and settings on the device

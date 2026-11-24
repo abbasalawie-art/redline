@@ -10,8 +10,11 @@ const CRC = (() => {
 function crc32(b) { let c = 0xffffffff; for (let i = 0; i < b.length; i++) c = CRC[(c ^ b[i]) & 0xff] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; }
 const enc = new TextEncoder();
 
-/** files: [{ name, data: string | Uint8Array }] → Uint8Array */
-export function zip(files) {
+/**
+ * files: [{ name, data: string | Uint8Array }] → the pieces of a zip file, in order.
+ * Hand them to `new Blob(parts)` for a big archive, so it is never copied into one block of memory.
+ */
+export function zipParts(files) {
   const parts = [], central = [];
   let offset = 0;
   const now = new Date();
@@ -36,10 +39,36 @@ export function zip(files) {
   const end = new DataView(new ArrayBuffer(22));
   end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true);
   end.setUint32(12, cenSize, true); end.setUint32(16, offset, true);
-  const all = [...parts, ...central, new Uint8Array(end.buffer)];
+  return [...parts, ...central, new Uint8Array(end.buffer)];
+}
+
+/** files: [{ name, data: string | Uint8Array }] → Uint8Array */
+export function zip(files) {
+  const all = zipParts(files);
   const out = new Uint8Array(all.reduce((n, p) => n + p.length, 0));
   let at = 0;
   for (const p of all) { out.set(p, at); at += p.length; }
+  return out;
+}
+
+/** Read back a zip written by zip(): Map of name → bytes (views into `bytes`, not copies). Stored entries only. */
+export function unzip(bytes) {
+  const v = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength), out = new Map(), dec = new TextDecoder();
+  let e = bytes.length - 22;
+  while (e >= 0 && v.getUint32(e, true) !== 0x06054b50) e--;
+  if (e < 0) throw new Error('not a zip file');
+  const count = v.getUint16(e + 10, true);
+  let at = v.getUint32(e + 16, true);
+  for (let i = 0; i < count; i++) {
+    if (v.getUint32(at, true) !== 0x02014b50) throw new Error('damaged zip file');
+    const method = v.getUint16(at + 10, true), size = v.getUint32(at + 20, true), nameLen = v.getUint16(at + 28, true);
+    const extra = v.getUint16(at + 30, true), comment = v.getUint16(at + 32, true), local = v.getUint32(at + 42, true);
+    const name = dec.decode(bytes.subarray(at + 46, at + 46 + nameLen));
+    if (method !== 0) throw new Error('this zip file is compressed: only Redline\'s own backups can be read');
+    const start = local + 30 + v.getUint16(local + 26, true) + v.getUint16(local + 28, true);
+    out.set(name, bytes.subarray(start, start + size));
+    at += 46 + nameLen + extra + comment;
+  }
   return out;
 }
 

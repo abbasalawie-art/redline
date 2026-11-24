@@ -17,6 +17,7 @@ export function createViewer(els, onView) {
   const view = { scale: 1, tx: 0, ty: 0 };
   let pdf = null, page = null, W = 1, H = 1, baseScale = 1, fitScale = 1;
   let gen = 0, baseTask = null, detailTask = null, settleTimer = 0;
+  let pageIdx = 0, other = null;          // `other`: a second PDF laid over this one, to show what changed
   const info = new Map();     // page index → { w, h, k, matrix }
 
   const stageSize = () => ({ w: stage.clientWidth, h: stage.clientHeight });
@@ -97,13 +98,51 @@ export function createViewer(els, onView) {
     clearTimeout(settleTimer);
   }
 
-  async function renderInto(canvas, viewport, which) {
-    const ctx = canvas.getContext('2d', { alpha: false });
+  /** `at` = { scale, offsetX, offsetY } of the picture wanted, the same for both PDFs when comparing. */
+  async function renderInto(canvas, at, which) {
+    const ctx = canvas.getContext('2d', { alpha: false, willReadFrequently: !!other });
     ctx.fillStyle = '#fff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    const task = page.render({ canvas, canvasContext: ctx, viewport, annotationMode: FORMS_ON_TOP });
+    const task = page.render({ canvas, canvasContext: ctx, viewport: page.getViewport(at), annotationMode: FORMS_ON_TOP });
     if (which === 'base') baseTask = task; else detailTask = task;
     await task.promise;
+    if (other) await overlay(ctx, canvas, at);
+  }
+
+  /**
+   * Comparing: draw the other PDF's page the same way and mix the two.
+   * What both have goes grey, what only this drawing has goes blue, what only the other has goes red.
+   */
+  async function overlay(ctx, canvas, at) {
+    const cmp = other, n = cmp.numPages === 1 ? 1 : pageIdx + 1;
+    if (n > cmp.numPages) return;
+    const op = await cmp.getPage(n);
+    const off = document.createElement('canvas');
+    off.width = canvas.width; off.height = canvas.height;
+    const octx = off.getContext('2d', { alpha: false, willReadFrequently: true });
+    octx.fillStyle = '#fff';
+    octx.fillRect(0, 0, off.width, off.height);
+    await op.render({ canvas: off, canvasContext: octx, viewport: op.getViewport(at) }).promise;
+    if (other !== cmp) return;
+    const A = ctx.getImageData(0, 0, canvas.width, canvas.height), B = octx.getImageData(0, 0, off.width, off.height).data, d = A.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const mine = 255 - (d[i] * 0.299 + d[i + 1] * 0.587 + d[i + 2] * 0.114), theirs = 255 - (B[i] * 0.299 + B[i + 1] * 0.587 + B[i + 2] * 0.114);
+      if (mine < 20 && theirs < 20) { d[i] = d[i + 1] = d[i + 2] = 255; continue; }
+      const both = Math.min(mine, theirs), added = mine - both, gone = theirs - both;
+      d[i] = Math.max(0, 255 - both * 0.5 - added * 0.86 - gone * 0.12);
+      d[i + 1] = Math.max(0, 255 - both * 0.5 - added * 0.62 - gone * 0.86);
+      d[i + 2] = Math.max(0, 255 - both * 0.5 - added * 0.06 - gone * 0.86);
+    }
+    ctx.putImageData(A, 0, 0);
+  }
+
+  /** Lay another PDF over this one (or pass null to stop), and redraw. */
+  function setCompare(pdfOrNull) {
+    other = pdfOrNull;
+    if (!page) return;
+    gen++;
+    cancelTasks();
+    renderBase().catch(err => console.warn('page render', err));
   }
 
   async function renderBase() {
@@ -115,7 +154,7 @@ export function createViewer(els, onView) {
     off.width = Math.max(1, Math.round(W * s));
     off.height = Math.max(1, Math.round(H * s));
     try {
-      await renderInto(off, page.getViewport({ scale: s }), 'base');
+      await renderInto(off, { scale: s }, 'base');
     } catch (e) {
       if (e && e.name === 'RenderingCancelledException') return;
       throw e;
@@ -146,7 +185,7 @@ export function createViewer(els, onView) {
     off.height = Math.max(1, Math.round((y1 - y0) * s));
     try { detailTask && detailTask.cancel(); } catch { /* fine */ }
     try {
-      await renderInto(off, page.getViewport({ scale: s, offsetX: -x0 * s, offsetY: -y0 * s }), 'detail');
+      await renderInto(off, { scale: s, offsetX: -x0 * s, offsetY: -y0 * s }, 'detail');
     } catch (e) {
       if (e && e.name === 'RenderingCancelledException') return;
       throw e;
@@ -171,6 +210,7 @@ export function createViewer(els, onView) {
     gen++;
     cancelTasks();
     page = await pdf.getPage(index + 1);
+    pageIdx = index;
     const rec = await pageInfo(index);
     W = rec.w; H = rec.h;
     svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
@@ -211,7 +251,7 @@ export function createViewer(els, onView) {
   }
 
   return {
-    view, setView, fit, fitWidth, actualSize, zoomAt, toPage, toStage, settle, showPage, setDocument, pageInfo, resized, renderRegion,
+    view, setView, fit, fitWidth, actualSize, zoomAt, setCompare, toPage, toStage, settle, showPage, setDocument, pageInfo, resized, renderRegion,
     get size() { return { w: W, h: H }; },
     get fitScale() { return fitScale; },
   };

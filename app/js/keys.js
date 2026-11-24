@@ -1,7 +1,7 @@
 // Keyboard shortcuts, matched to Bluebeam Revu's defaults wherever Redline has the same thing.
 import { TEXT_TYPES } from './shapes.js';
 
-const MEASURES = ['dim', 'path', 'area'];
+const MEASURES = ['dim', 'path', 'area', 'count'];
 
 /** "Ctrl+Shift+S" for a key press, in the order Ctrl, Alt, Shift. Layout-independent for letters and digits. */
 export function comboOf(e) {
@@ -97,6 +97,7 @@ export function initKeys(app) {
     ['Tools', ['Alt+Shift+L', 'Shift+L'], 'Length', tool('dim')],
     ['Tools', ['Alt+Shift+Q'], 'Polylength: a cable run', tool('path')],
     ['Tools', ['Alt+Shift+A', 'Alt+Shift+P'], 'Area and perimeter', tool('area')],
+    ['Tools', ['Alt+Shift+C'], 'Count', tool('count')],
     ['Tools', ['1', '2', '3', '4', '5', '6', '7', '8', '9'], 'Saved tool 1 to 9', null],
     ['Tools', ['Esc'], 'Put the tool down', () => { app.tools.cancelPending({ discard: true }); app.select(null); app.setTool('select'); }],
 

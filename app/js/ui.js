@@ -1,6 +1,6 @@
 // Everything around the drawing: tool rail, options bar, files, pages, export, settings.
 import { icon } from './icons.js';
-import { TEXT_TYPES, MEASURE_TYPES, measureOf } from './shapes.js';
+import { TEXT_TYPES, MEASURE_TYPES, measureOf, PIN_STATUS, statusOf, photosOf } from './shapes.js';
 import * as store from './store.js';
 
 // The rail. An entry with several tools remembers which one was used last.
@@ -19,16 +19,17 @@ const RAIL = [
   null,
   { id: 'kit', label: 'Symbols', tools: ['stamp', 'sig', 'snip'], open: app => app.kit.open() },
   { id: 'pin', label: 'Pin', tools: ['pin'] },
-  { id: 'dim', label: 'Measure', tools: ['dim', 'path', 'area'] },
+  { id: 'dim', label: 'Measure', tools: ['dim', 'path', 'area', 'count'] },
 ];
 const MODES = {
   text: [['text', 'New text'], ['retype', 'Retype']], retype: [['text', 'New text'], ['retype', 'Retype']],
   rect: [['rect', 'Box'], ['ellipse', 'Ellipse']], ellipse: [['rect', 'Box'], ['ellipse', 'Ellipse']],
-  dim: [['dim', 'Length'], ['path', 'Run'], ['area', 'Area']], path: [['dim', 'Length'], ['path', 'Run'], ['area', 'Area']], area: [['dim', 'Length'], ['path', 'Run'], ['area', 'Area']],
 };
+// Length, Run, Area and Count share the Measure button.
+for (const t of ['dim', 'path', 'area', 'count']) MODES[t] = [['dim', 'Length'], ['path', 'Run'], ['area', 'Area'], ['count', 'Count']];
 export const TOOL_NAME = {
   select: 'Select', cloud: 'Cloud', cloudplus: 'Cloud+', callout: 'Callout', text: 'Text', retype: 'Retype', arrow: 'Arrow', pen: 'Pen',
-  hl: 'Highlight', rect: 'Box', ellipse: 'Ellipse', stamp: 'Symbol', pin: 'Pin', dim: 'Length', path: 'Run', area: 'Area', sig: 'Signature', snip: 'New sticker',
+  hl: 'Highlight', rect: 'Box', ellipse: 'Ellipse', stamp: 'Symbol', pin: 'Pin', dim: 'Length', path: 'Run', area: 'Area', sig: 'Signature', snip: 'New sticker', count: 'Count',
 };
 const CAN_FAVOURITE = new Set(['cloud', 'cloudplus', 'callout', 'text', 'arrow', 'pen', 'hl', 'rect', 'ellipse', 'dim', 'path', 'area']);
 
@@ -46,6 +47,7 @@ const SCALES = [0.25, 0.5, 0.75, 1, 1.5, 2, 3, 4];
 const TURNS = [0, 45, 90, 135, 180, 225, 270, 315];
 const PIN_SIZES = [[0.75, 'Small'], [1, 'Medium'], [1.5, 'Large'], [2, 'Huge']];
 const CLOUD_SHAPES = [['box', 'Box'], ['poly', 'Corners'], ['free', 'Freehand']];
+const ROWS = [1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20];
 const RATIOS = [10, 20, 25, 50, 100, 200, 250, 500, 1000];
 export const MPP_PER_RATIO = 0.0254 / 72;       // metres per page point at 1:1
 
@@ -59,8 +61,9 @@ const PROPS = {
   hl: ['color', 'width'],
   rect: ['color', 'fill', 'fillOpacity', 'width', 'opacity'],
   ellipse: ['color', 'fill', 'fillOpacity', 'width', 'opacity'],
-  stamp: ['mode', 'markColor', 'scale', 'rot', 'opacity'],
-  pin: ['color', 'size'],
+  stamp: ['mode', 'markColor', 'row', 'scale', 'rot', 'opacity'],
+  pin: ['status', 'color', 'size'],
+  count: ['color', 'size'],
   dim: ['color', 'width', 'fontSize'],
   path: ['color', 'width', 'fontSize'],
   area: ['color', 'fill', 'fillOpacity', 'width', 'fontSize'],
@@ -69,11 +72,12 @@ const PROPS = {
 };
 const LABEL = {
   color: 'Line', fill: 'Fill', fillOpacity: 'Fill', textColor: 'Text', width: 'Width', fontSize: 'Size', head: 'Arrow', border: 'Border',
-  opacity: 'Opacity', markColor: 'Colour', scale: 'Size', rot: 'Turn', size: 'Size', shape: 'Shape',
+  opacity: 'Opacity', markColor: 'Colour', scale: 'Size', rot: 'Turn', size: 'Size', shape: 'Shape', status: 'Status', row: 'Row',
 };
 const TIPS = {
   retype: 'Tap a line of text to retype it. Or drag a box over anything to cover it and type on top.',
   snip: 'Drag a box around what you want to keep as a sticker.',
+  stamp: '',
   pin: 'Tap where the photo or note belongs.',
 };
 
@@ -195,6 +199,8 @@ export function initUI(app) {
     else if (key === 'rot') chips(TURNS, v => `${v}°`);
     else if (key === 'size') for (const [v, name] of PIN_SIZES) row.append(h('button', { class: 'chip', 'aria-pressed': String(val === v), onclick: () => pick(v) }, name));
     else if (key === 'shape') for (const [v, name] of CLOUD_SHAPES) row.append(h('button', { class: 'chip', 'aria-pressed': String((val || 'box') === v), onclick: () => pick(v) }, name));
+    else if (key === 'status') for (const [v, st] of Object.entries(PIN_STATUS)) row.append(h('button', { class: 'chip', 'aria-pressed': String((val || 'open') === v), onclick: () => pick(v) }, st.color ? swatch(st.color) : null, st.label));
+    else if (key === 'row') chips(ROWS, v => (v === 1 ? 'One at a time' : `${v} in a row`));
     return row;
   }
 
@@ -212,6 +218,8 @@ export function initUI(app) {
     else if (key === 'rot') b.append(lbl, `${val}°`);
     else if (key === 'size') b.append(lbl, (PIN_SIZES.find(s => s[0] === val) || [0, pct(val)])[1]);
     else if (key === 'shape') b.append(lbl, (CLOUD_SHAPES.find(s => s[0] === (val || 'box')) || CLOUD_SHAPES[0])[1]);
+    else if (key === 'status') { const st = PIN_STATUS[val] || PIN_STATUS.open; b.append(st.color ? swatch(st.color) : lbl, st.label); }
+    else if (key === 'row') b.append(lbl, (val || 1) > 1 ? String(val) : 'Off');
     else if (key === 'border') { b.append(lbl); b.setAttribute('aria-pressed', String(!!val)); }
     b.addEventListener('click', () => {
       if (key === 'border') return app.setProp('border', !val);
@@ -237,7 +245,7 @@ export function initUI(app) {
       // Sister tools behind one rail button.
       props.append(h('div', { class: 'seg' }, MODES[type].map(([id, name]) => h('button', { 'aria-pressed': String(id === type), onclick: () => app.setTool(id) }, name))));
     } else {
-      props.append(h('div', { class: 'prop-title' }, m && m.type === 'stamp' ? (m.name || 'Symbol') : m && m.type === 'pin' ? `Pin ${m.n}` : TOOL_NAME[type] || ''));
+      props.append(h('div', { class: 'prop-title' }, m && m.type === 'stamp' ? (m.name || 'Symbol') : m && m.type === 'pin' ? `Pin ${m.n}` : m && m.type === 'count' ? `${m.label || 'Count'}: ${m.pts.length}` : TOOL_NAME[type] || ''));
     }
     if (!m && type === 'stamp') props.append(app.kit.currentButton());
     if (!m && type === 'sig') props.append(h('button', { class: 'prop', onclick: () => app.kit.signaturePad() }, 'New signature'));
@@ -246,10 +254,19 @@ export function initUI(app) {
       const q = measureOf(m);
       props.append(h('div', { class: 'tip strong' }, type === 'area' ? `${q.label} · ${Math.round(q.length * 100) / 100} m round` : q.label));
     }
+    if (!m && type === 'count') {
+      // The running total, and what is being counted.
+      const c = app.tools.counting, label = c ? c.label : app.prefs.tools.count.label;
+      props.append(h('div', { class: 'tip strong' }, c ? `${c.label || 'Counted'}: ${c.pts.length}` : 'Tap each one to count it'),
+        h('button', { class: 'prop', onclick: () => nameCount(c) }, h('span', { class: 'lbl' }, 'Counting'), label || 'not named'),
+        c ? h('button', { class: 'prop', onclick: () => { app.tools.resetCount(); refresh(); toast('The next tap starts a new count'); } }, 'New count') : null);
+    }
     if (!m && TIPS[type]) props.append(h('div', { class: 'tip' }, TIPS[type]));
     for (const key of PROPS[type] || []) {
       if (key === 'fillOpacity' && !app.propValue('fill') && type !== 'area') continue;      // only once a fill colour is chosen
-      if (key === 'shape' && m) continue;
+      if ((key === 'shape' || key === 'row') && m) continue;
+      if (key === 'status' && !m) continue;
+      if (key === 'color' && m && m.type === 'pin' && statusOf(m) !== 'open') continue;      // its status sets its colour
       if (key === 'mode' || key === 'markColor') {
         // Markup: the symbol in your markup colour. Design: as it is on the legend.
         if (!(m ? app.kit.canTint(m) : app.kit.currentCanTint())) continue;
@@ -263,12 +280,24 @@ export function initUI(app) {
     if (m) {
       if (TEXT_TYPES.has(m.type) && m.box) actions.push(act('edit', 'Edit', () => app.startEdit(m)));
       if (m.type === 'pin') actions.push(act('camera', 'Note', () => app.pins.open(m)));
+      if (m.type === 'count') actions.push(act('edit', 'Name', () => nameCount(m)), act('plus', 'Add more', () => { app.setTool('count'); app.tools.continueCount(m.id); refresh(); }));
       if (m.type === 'dim') actions.push(act('scale', 'Calibrate', () => calibrateSheet(m)));
       actions.push(act('copy', 'Copy', () => app.duplicateSelected()), act('trash', 'Delete', () => app.deleteSelected(), 'danger'));
     } else if (CAN_FAVOURITE.has(type)) {
       actions.push(act('star', 'Save', () => app.kit.addFavourite(type)));
     }
     if (actions.length) props.append(h('div', { class: 'spacer' }), h('div', { class: 'actions' }, actions));
+  }
+
+  /** Say what a count is counting ("Downlights"). */
+  function nameCount(m) {
+    const cur = m ? m.label : app.prefs.tools.count.label;
+    const t = window.prompt('What are you counting? (e.g. Downlights)', cur || '');
+    if (t == null) return;
+    const label = app.font.clean(t.trim()).slice(0, 40);
+    app.prefs.tools.count.label = label;
+    store.savePrefs(app.prefs);
+    if (m) { app.pushUndo(); m.label = label; app.changed(); } else refresh();
   }
 
   function refresh() {
@@ -389,6 +418,7 @@ export function initUI(app) {
       h('button', { class: 'big', html: `${icon('plus')}<span>Open a PDF</span>`, onclick: () => app.files.openPicker() }),
       h('h2', {}, 'On this device'),
       docs.length ? list : h('div', { class: 'empty' }, 'Nothing here yet. PDFs you open are kept on this device with their markups, so they are ready when there is no signal.'),
+      h('button', { class: 'home-link', onclick: () => app.backup.open() }, 'Back up or restore everything on this device'),
       ios && !standalone ? h('div', { class: 'note', html: '<b>Install it:</b> tap the Share button in Safari, then <b>Add to Home Screen</b>. Redline then opens full screen and works offline.' }) : null));
   }
 
@@ -443,7 +473,7 @@ export function initUI(app) {
     if (app.editing) app.commitEdit();
     app.tools.cancelPending();
     if (!app.doc.writable) return alert('This PDF cannot be saved to', 'Redline can show this file but cannot write markups into it. Try re-saving it from Revu or printing it to a new PDF first.');
-    const n = app.markups.length, photos = app.markups.filter(m => m.type === 'pin' && m.photo).length;
+    const n = app.markups.length, photos = app.markups.reduce((t, m) => t + (m.type === 'pin' ? photosOf(m).length : 0), 0);
     const withPhotos = h('input', { type: 'checkbox', id: 'exp-photos', checked: true });
     const run = async flatten => {
       busy('Building PDF…');
@@ -522,8 +552,10 @@ export function initUI(app) {
       item('list', 'Markups and report', 'Everything marked on this drawing, symbol counts, and the site report.', () => app.report.open()),
       item('search', 'Find text', 'Search every page of the drawing for a word or a number.', () => app.search.open()),
       item('scale', 'Drawing scale', `For measuring. This page: ${scaleLabel(app.scaleOf(app.doc.pageIndex))}.`, scaleSheet),
+      item('copy', 'Compare with another revision', 'Lay an older or newer PDF of this drawing over it to see what changed.', () => app.compare.start()),
       item('doc', 'Text to Word', 'Copy the words out of this PDF into a Word file. Layout and pictures are not kept.', () => app.search.textToWord()),
       item('edit', 'Keyboard shortcuts', 'The same keys as Revu. F1 shows this list at any time.', () => app.keys.help()),
+      item('download', 'Back up or restore', 'Save every drawing, photo and symbol on this device as one file, or bring one back.', () => app.backup.open()),
       item('settings', 'Settings', 'Your name on markups, and Pencil and finger behaviour.', settingsSheet),
     ]);
   }
@@ -534,6 +566,8 @@ export function initUI(app) {
     name.addEventListener('change', () => { app.prefs.author = name.value.trim(); store.savePrefs(app.prefs); });
     const finger = h('input', { type: 'checkbox', id: 'set-finger', checked: app.prefs.fingerDraws });
     finger.addEventListener('change', () => { app.prefs.fingerDraws = finger.checked; store.savePrefs(app.prefs); });
+    const snap = h('input', { type: 'checkbox', id: 'set-snap', checked: app.prefs.snap !== false });
+    snap.addEventListener('change', () => { app.prefs.snap = snap.checked; store.savePrefs(app.prefs); });
     let usage = '';
     try {
       const est = await navigator.storage.estimate();
@@ -542,6 +576,7 @@ export function initUI(app) {
     openSheet('Settings', [
       h('div', { class: 'field' }, h('label', { for: 'set-author' }, 'Your name on markups'), name, h('small', {}, 'Shown as the author in Revu and on the site report.')),
       h('label', { class: 'switch', for: 'set-finger' }, finger, h('span', {}, 'Draw with a finger even after using Apple Pencil')),
+      h('label', { class: 'switch', for: 'set-snap' }, snap, h('span', {}, 'Snap: lines click to level and upright, symbols click into line with each other')),
       h('p', { class: 'muted' }, 'With a keyboard, the keys are the same as Revu. Press F1 for the list.'),
       h('p', { class: 'muted' }, `Redline ${app.version}. ${usage} PDFs, photos and markups stay on this device.`),
     ]);

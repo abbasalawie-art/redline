@@ -448,5 +448,10 @@ export function initKit(app) {
     app.ui.toast(f.name);
   }
   const picture = () => $('file-photo').click();
-  app.kit = { favourite, picture, open, newStamp, newSignature, signaturePad, snip, currentButton, canTint, currentCanTint, currentTint, markupTint, rememberColour, modeSwitch, addFavourite, importFile, entries: () => lib, ready };
+  /** Read the tray again from the device (after a backup has been brought back). */
+  async function reload() {
+    lib = (await store.listLibrary()).sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    await assets.load(lib.map(e => e.asset));
+  }
+  app.kit = { reload, favourite, picture, open, newStamp, newSignature, signaturePad, snip, currentButton, canTint, currentCanTint, currentTint, markupTint, rememberColour, modeSwitch, addFavourite, importFile, entries: () => lib, ready };
 }

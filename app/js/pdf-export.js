@@ -1,7 +1,7 @@
 // Writes markups into a PDF (as real, editable PDF markups, or flattened into the page)
 // and reads Redline's own markups back out of a PDF it saved earlier.
 // No DOM in here: it runs the same in the browser and in Node tests.
-import { buildShapes, SUBJECT, textPad } from './shapes.js';
+import { buildShapes, SUBJECT, textPad, photosOf, statusOf, pinColour, PIN_STATUS } from './shapes.js';
 import { LINE_HEIGHT } from './text.js';
 
 const DATA_KEY = 'RedlineData';     // on the main markup: the full Redline record (JSON)
@@ -169,7 +169,7 @@ export async function exportPdf(PDFLib, baseBytes, markups, opts = {}) {
   const used = new Map();           // asset id → asset (everything the markups lean on)
   for (const m of markups) {
     if (!pages[m.page]) continue;
-    for (const id of [m.type === 'stamp' ? m.sym : null, m.type === 'pin' ? m.photo : null]) {
+    for (const id of [m.type === 'stamp' ? m.sym : null, ...(m.type === 'pin' ? photosOf(m) : [])]) {
       const a = asset(id);
       if (a) used.set(id, a);
     }
@@ -196,7 +196,7 @@ export async function exportPdf(PDFLib, baseBytes, markups, opts = {}) {
     const shapes = buildShapes(m, font, assets);
     const refs = shapes.parts.map(() => ctx.nextRef());
     const mainIdx = shapes.parts.length - 1;
-    const colour = m.color || m.tint || '#000000';
+    const colour = m.type === 'pin' ? pinColour(m) : m.color || m.tint || '#000000';
 
     shapes.parts.forEach((part, pi) => {
       const lw = m.width || 0;
@@ -291,12 +291,14 @@ export async function exportPdf(PDFLib, baseBytes, markups, opts = {}) {
         d.InkList = part.strokes.map(verts);
         d.BS = bs;
         if (part.highlight) d.BM = 'Multiply';
-      } else if (part.kind === 'stamp' || part.kind === 'pin') {
+      } else if (part.kind === 'stamp' || part.kind === 'pin' || part.kind === 'count') {
         d.Subtype = 'Stamp';
-        d.Name = part.kind === 'pin' ? 'Pin' : 'Symbol';
-        const note = part.kind === 'pin' ? `${m.n}${m.note ? `: ${m.note}` : ''}` : (m.name || '');
+        d.Name = part.kind === 'pin' ? 'Pin' : part.kind === 'count' ? 'Count' : 'Symbol';
+        const state = part.kind === 'pin' && statusOf(m) !== 'open' ? ` (${PIN_STATUS[statusOf(m)].label})` : '';
+        const note = part.kind === 'pin' ? `${m.n}${state}${m.note ? `: ${m.note}` : ''}` : part.kind === 'count' ? part.total : (m.name || '');
         if (note) d.Contents = PDFHexString.fromText(note);
         if (part.kind === 'stamp' && m.name) subject = m.name;
+        if (part.kind === 'count' && m.label) subject = m.label;
       } else if (part.kind === 'freetext') {
         const tb = part.textBox;
         const tbRect = pdfRect(M, tb);
@@ -337,20 +339,25 @@ export async function exportPdf(PDFLib, baseBytes, markups, opts = {}) {
   }
 
   // A page at the back for each pin's photo, with its number and note.
-  const photos = markups.filter(m => m.type === 'pin' && m.photo && used.get(m.photo) && pages[m.page]).sort((a, b) => a.n - b.n);
+  const photos = [];
+  for (const m of markups.filter(x => x.type === 'pin' && pages[x.page]).sort((a, b) => a.n - b.n)) {
+    const ids = photosOf(m).filter(id => used.get(id));
+    ids.forEach((id, i) => photos.push({ m, id, part: ids.length > 1 ? ` (${i + 1} of ${ids.length})` : '' }));
+  }
   if (photoPages && photos.length) {
     const cap = await doc.embedFont(PDFLib.StandardFonts.Helvetica);
     const ink = PDFLib.rgb(0.08, 0.09, 0.11), grey = PDFLib.rgb(0.37, 0.42, 0.48);
-    for (const m of photos) {
+    for (const { m, id, part } of photos) {
       let pic;
-      try { pic = await embedPic(used.get(m.photo)); } catch (e) { console.warn('photo not embedded', e && e.message); continue; }
-      const a = used.get(m.photo), wide = a.w >= a.h;
+      try { pic = await embedPic(used.get(id)); } catch (e) { console.warn('photo not embedded', e && e.message); continue; }
+      const a = used.get(id), wide = a.w >= a.h;
       const [W, H] = wide ? [841.89, 595.28] : [595.28, 841.89], mg = 36;
       const pg = doc.addPage([W, H]);
       pg.node.set(PDFName.of(PAGE_KEY), PDFLib.PDFBool.True);
       let y = H - mg - 16;
-      pg.drawText(font.clean(`Photo ${m.n}`), { x: mg, y, size: 18, font: cap, color: ink });
-      pg.drawText(font.clean(`${title ? `${title}  ·  ` : ''}page ${m.page + 1}`), { x: mg + cap.widthOfTextAtSize(`Photo ${m.n}`, 18) + 14, y, size: 11, font: cap, color: grey });
+      const head = `Photo ${m.n}${part}`, state = statusOf(m) !== 'open' ? `  ·  ${PIN_STATUS[statusOf(m)].label}` : '';
+      pg.drawText(font.clean(head), { x: mg, y, size: 18, font: cap, color: ink });
+      pg.drawText(font.clean(`${title ? `${title}  ·  ` : ''}page ${m.page + 1}${state}`), { x: mg + cap.widthOfTextAtSize(head, 18) + 14, y, size: 11, font: cap, color: grey });
       y -= 8;
       for (const ln of font.wrap(m.note || '', 12, W - 2 * mg).slice(0, 6)) { if (!ln) continue; y -= 15; pg.drawText(ln, { x: mg, y, size: 12, font: cap, color: ink }); }
       y -= 12;

@@ -14,8 +14,19 @@ export const POLY_TYPES = new Set(['path', 'area']);          // drawn by tappin
 export const SUBJECT = {
   cloud: 'Cloud', cloudplus: 'Cloud+', callout: 'Callout', text: 'Text Box', arrow: 'Arrow',
   pen: 'Pen', hl: 'Highlight', rect: 'Rectangle', ellipse: 'Ellipse',
-  stamp: 'Symbol', pin: 'Pin', dim: 'Length', path: 'Cable run', area: 'Area', sig: 'Signature',
+  stamp: 'Symbol', pin: 'Pin', dim: 'Length', path: 'Cable run', area: 'Area', sig: 'Signature', count: 'Count',
 };
+
+// A pin is open until it is dealt with. Fixed and not-accepted pins take their own colour, so a glance at the sheet shows what is left.
+export const PIN_STATUS = {
+  open: { label: 'Open', color: null },
+  fixed: { label: 'Fixed', color: '#16a34a' },
+  rejected: { label: 'Not accepted', color: '#d97706' },
+};
+export const statusOf = m => (PIN_STATUS[m.status] ? m.status : 'open');
+export const pinColour = m => PIN_STATUS[statusOf(m)].color || m.color;
+/** A pin's photos. Older drawings kept a single one under `photo`. */
+export const photosOf = m => (Array.isArray(m.photos) ? m.photos : m.photo ? [m.photo] : []);
 
 export const textPad = m => Math.max(3, m.fontSize * 0.25);
 const fillAlpha = m => m.opacity * (m.fillOpacity ?? 1);
@@ -298,18 +309,44 @@ export function buildShapes(m, font, assets) {
     case 'pin': {
       const r = 9 * m.k * (m.size || 1), c = m.p, s = String(m.n);
       const size = r * (s.length > 2 ? 0.95 : 1.25), w = font.width(s, size);
+      const col = pinColour(m), status = statusOf(m);
       const items = [
-        path(G.circlePath(c.x, c.y, r), { fill: m.color, stroke: '#ffffff', w: r * 0.16, opacity: m.opacity }),
+        path(G.circlePath(c.x, c.y, r), { fill: col, stroke: '#ffffff', w: r * 0.16, opacity: m.opacity }),
         { t: 'text', lines: [{ s, x: c.x - w / 2, y: c.y + size * 0.36 }], size, color: '#ffffff', opacity: m.opacity },
       ];
-      if (m.photo) {
+      if (photosOf(m).length) {
         // A small camera-lens mark: this pin has a photo.
         const bx = c.x + r * 0.78, by = c.y - r * 0.78, br = r * 0.44;
-        items.push(path(G.circlePath(bx, by, br), { fill: '#ffffff', stroke: m.color, w: r * 0.13, opacity: m.opacity }));
-        items.push(path(G.circlePath(bx, by, br * 0.42), { fill: m.color, opacity: m.opacity }));
+        items.push(path(G.circlePath(bx, by, br), { fill: '#ffffff', stroke: col, w: r * 0.13, opacity: m.opacity }));
+        items.push(path(G.circlePath(bx, by, br * 0.42), { fill: col, opacity: m.opacity }));
+      }
+      if (status !== 'open') {
+        // A tick for fixed, a cross for not accepted: readable in black and white too.
+        const bx = c.x + r * 0.78, by = c.y + r * 0.78, br = r * 0.5, u = br * 0.5;
+        items.push(path(G.circlePath(bx, by, br), { fill: '#ffffff', stroke: col, w: r * 0.13, opacity: m.opacity }));
+        const mark = status === 'fixed'
+          ? [['M', bx - u, by], ['L', bx - u * 0.25, by + u * 0.7], ['L', bx + u, by - u * 0.7]]
+          : [['M', bx - u * 0.75, by - u * 0.75], ['L', bx + u * 0.75, by + u * 0.75], ['M', bx + u * 0.75, by - u * 0.75], ['L', bx - u * 0.75, by + u * 0.75]];
+        items.push(path(mark, { stroke: col, w: r * 0.16, opacity: m.opacity }));
       }
       const hit = G.circlePath(c.x, c.y, r * 1.5);
       parts.push({ kind: 'pin', items, bbox: bounds(items), hit });
+      break;
+    }
+    case 'count': {
+      // A tick on everything counted, and the total beside the last one.
+      const s = 5 * m.k * (m.size || 1), d = [];
+      for (const [x, y] of m.pts) d.push(['M', x - s, y - s * 0.05], ['L', x - s * 0.3, y + s * 0.7], ['L', x + s, y - s * 0.8]);
+      const items = [
+        path(d, { stroke: '#ffffff', w: s * 0.8, opacity: m.opacity }),
+        path(d, { stroke: m.color, w: s * 0.42, opacity: m.opacity }),
+      ];
+      const last = m.pts[m.pts.length - 1], text = `${m.label ? `${m.label}: ` : ''}${m.pts.length}`;
+      const size = 1.9 * s, w = font.width(text, size), pad = size * 0.3;
+      const pill = { x: last[0] + s * 1.5, y: last[1] - s * 0.8 - size * 0.62, w: w + 2 * pad, h: size * 1.24 };
+      items.push(path(G.rectPath(pill), { fill: m.color, opacity: m.opacity }));
+      items.push({ t: 'text', lines: [{ s: text, x: pill.x + pad, y: pill.y + size * 0.98 }], size, color: '#ffffff', opacity: m.opacity });
+      parts.push({ kind: 'count', items, bbox: bounds(items, [pill]), total: text });
       break;
     }
     case 'dim': {

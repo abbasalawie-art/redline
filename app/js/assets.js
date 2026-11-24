@@ -1,6 +1,7 @@
 // Pictures (photos, stickers) and drawn symbols that markups point at.
 // They are kept on the device once, by id, and held in memory while a drawing that uses them is open.
 import * as store from './store.js';
+import { photosOf } from './shapes.js';
 
 const cache = new Map();      // id → { id, kind: 'vec' | 'img', w, h, items | bytes + mime, alpha, url }
 
@@ -35,7 +36,7 @@ export function idsOf(markups) {
   const ids = new Set();
   for (const m of markups || []) {
     if (m.type === 'stamp' && m.sym) ids.add(m.sym);
-    if (m.type === 'pin' && m.photo) ids.add(m.photo);
+    if (m.type === 'pin') for (const id of photosOf(m)) ids.add(id);
   }
   return [...ids];
 }

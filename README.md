@@ -46,7 +46,7 @@ The same keys as Bluebeam Revu, for everything Redline also does. **F1** shows t
 | S, I, G, X | Stamp (the Symbols tray), Image, Snapshot (cut a sticker), Signature |
 | N | Note (a pin with a note and photo) |
 | M, Shift+M | Measure, next measuring tool |
-| Alt+Shift+L / Q / A | Length, Polylength (cable run), Area |
+| Alt+Shift+L / Q / A / C | Length, Polylength (cable run), Area, Count |
 | 1 to 9 | Saved tools |
 | Ctrl+Z, Ctrl+Y | Undo, Redo |
 | Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+Shift+V | Copy, Cut, Paste, Paste in place |
@@ -116,9 +116,9 @@ Open `http://<this PC's IP address>:5173` in Safari on the iPad. This is for a l
 | Arrow | Drag. The head is at the end of the drag. Set the head to *None* for a plain line. |
 | Pen, Highlight | Draw. |
 | Shape | Drag. Box or Ellipse. |
-| Symbols | Opens the tray. Pick a symbol, then tap the drawing to place it. It keeps placing until you pick another tool. |
-| Pin | Tap. A numbered marker appears and a sheet opens for a note and a photo. |
-| Measure | Length (drag), Run (tap along a cable route, then Done) or Area (tap the corners). Needs the drawing scale, asked for the first time. |
+| Symbols | Opens the tray. Pick a symbol, then tap the drawing to place it. It keeps placing until you pick another tool. With **Row** set to a number, drag a line and that many go down along it, evenly spaced. |
+| Pin | Tap. A numbered marker appears and a sheet opens for its status, a note and photos. |
+| Measure | Length (drag), Run (tap along a cable route, then Done), Area (tap the corners) or Count (tap each item). Length, Run and Area need the drawing scale, asked for the first time. |
 | Lock | Keeps the current tool on instead of dropping back to Select. |
 
 Tapping the tool that is already on turns it off and goes back to Select.
@@ -127,6 +127,7 @@ Tapping the tool that is already on turns it off and goes back to Select.
 - After an Apple Pencil touches the screen, the Pencil draws and a finger moves the page (change this under ⋯ › Settings).
 - The options bar along the bottom changes the selected markup, or the next one you draw. Each tool remembers its own options.
 - **★ Save** in the options bar keeps a tool with its colours and sizes. Saved tools are at the top of the Symbols tray.
+- **Snap** (on by default, ⋯ › Settings): a line drawn within a few degrees of level or upright becomes exactly so, and a symbol or pin placed nearly in line with another clicks into line, with a blue guide.
 - Everything is saved on the device as you go. **Files** lists what is stored.
 
 ### Symbols, stickers and stamps
@@ -152,10 +153,26 @@ This cuts each row of a legend sheet (a vector PDF plotted from CAD) into a symb
 
 ### Pins, photos and the site report
 
-- A **pin** is a numbered marker with a note and a photo. Tap a selected pin again to change them.
-- **Export** adds a page at the back of the PDF for each photo, with its number and note (this can be turned off).
-- The list button (or ⋯ › *Markups and report*) shows every pin, measurement and note, with **symbol counts** per page and for the whole drawing. Tap a row to jump to it.
-- **Word report**, **PDF report** and **Excel** build a site report: each pin with its note, a picture of where it is on the drawing and its photo, then symbol counts, measurements and notes.
+- A **pin** is a numbered marker with a status, a note and photos. Tap a selected pin again to change them.
+- **Status:** Open, Fixed or Not accepted. Fixed pins turn green with a tick, not-accepted ones amber with a cross, and the date of the change is kept. On a return visit, filter the list to Open and work down it.
+- **Photos:** as many as you like on one pin. After taking or choosing a photo you can **draw on it** (circle the fault, point at it) before it is kept, and again later with *Draw on it*.
+- **Export** adds a page at the back of the PDF for each photo, with its number, status and note (this can be turned off).
+- The list button (or ⋯ › *Markups and report*) shows every pin, measurement and note. Tap a row to jump to it.
+- **Counts** in the list are per page and for the whole drawing: every symbol placed, and everything ticked off with the Count tool.
+- **Word report**, **PDF report** and **Excel** build a site report: pins grouped by status (open first), each with its note, a picture of where it is on the drawing and its photos; then counts, measurements and notes.
+- **Report details** sets what goes at the top: title, job number, site address, who prepared it, company and logo. Job number and address are kept with the drawing; the rest is the same for every report.
+
+### Counting
+
+**Measure › Count**, then tap each item on the drawing: every downlight, every outlet. Each tap leaves a tick and the options bar shows the running total. **Counting** names what you are counting; **New count** starts another. Tap a finished count to move it, rename it, or **Add more**.
+
+### Comparing two revisions
+
+⋯ › **Compare with another revision**, and choose the other PDF of the same drawing. It is laid over the one you have open: what both have goes grey, what is only in the open drawing goes blue, what is only in the other goes red. You can mark up on top of it. The bar at the bottom left ends the comparison. Pages are matched by number, and the two sheets need to be the same size and line up; there is no way yet to nudge one against the other.
+
+### Backup
+
+⋯ › **Back up or restore** (also at the foot of the Files screen). **Make a backup** puts every drawing, markup, photo, tray symbol and setting on the device into one zip file: save it to OneDrive. **Restore** brings one back. It adds what is missing and updates drawings that are newer in the backup, and never deletes anything, so it is also the way to move everything to another device. A backup holds everything in memory while it is made, so with many large drawing sets on an iPad it can fail: remove what you no longer need first.
 
 ### Measuring
 
@@ -203,6 +220,7 @@ Writes every kind of markup onto a normal page and a rotated page, reads them ba
 - Text markups cannot be turned, and characters outside standard Latin become `?`.
 - Find and Retype only see typed text. CAD drawings often draw their text as lines.
 - Stickers you cut yourself are pictures (sharp, but not line work). Symbol sets are line work.
+- A count is saved as one stamp carrying its total, not as Revu's own count markup.
 - Measurements are saved as lines and shapes carrying the value as a comment, not as Revu's own measurement markups.
 - A web app cannot appear in the iOS "Open in…" menu. Open PDFs from inside Redline.
 
