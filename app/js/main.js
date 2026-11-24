@@ -19,7 +19,7 @@ import { initPages } from './pages.js';
 import { initSearch } from './search.js';
 import { initReport } from './report.js';
 
-const VERSION = '0.2.1';
+const VERSION = '0.2.2';
 const asset = p => new URL(p, import.meta.url).href;
 pdfjs.GlobalWorkerOptions.workerSrc = asset('../vendor/pdfjs/pdf.worker.min.mjs');
 
@@ -34,7 +34,7 @@ const TOOL_DEFAULTS = {
   hl: { color: '#facc15', width: 14, opacity: 0.45 },
   rect: { color: RED, fill: null, fillOpacity: 0.25, width: 2, opacity: 1 },
   ellipse: { color: RED, fill: null, fillOpacity: 0.25, width: 2, opacity: 1 },
-  stamp: { lib: null, scale: 1, rot: 0, mode: 'markup', markColor: RED, opacity: 1 },
+  stamp: { lib: null, scale: 1, rot: 0, mode: 'markup', markColor: RED, altColor: '#db2777', opacity: 1 },
   pin: { color: RED, size: 1, opacity: 1 },
   dim: { color: BLUE, width: 1.5, fontSize: 'auto', opacity: 1 },
   path: { color: BLUE, width: 1.5, fontSize: 'auto', opacity: 1 },
@@ -178,6 +178,7 @@ app.newStyle = tool => {
 };
 app.propValue = key => {
   const m = app.selected();
+  if (!m && app.tool === 'stamp' && key === 'markColor') return app.kit.currentTint() || app.prefs.tools.stamp.markColor;
   if (!m) return (app.prefs.tools[app.tool] || {})[key] ?? null;
   if (key === 'width') return Math.round((m.width / m.k) * 100) / 100;
   if (key === 'fillOpacity') return m.fillOpacity ?? (m.type === 'area' ? 0.15 : 1);
@@ -194,11 +195,11 @@ app.setProp = (key, value) => {
   if (type === 'stamp' && (key === 'mode' || key === 'markColor')) {
     // Markup or Design, and the markup colour: remembered for the next symbols, applied to the one selected.
     const d = app.prefs.tools.stamp;
-    d[key] = value;
+    if (key === 'mode') d.mode = value; else app.kit.rememberColour(value, m);
     store.savePrefs(app.prefs);
     if (!m) return app.ui.refresh();
     app.pushUndo();
-    m.tint = key === 'markColor' ? value : value === 'design' ? null : d.markColor;
+    m.tint = key === 'markColor' ? value : value === 'design' ? null : app.kit.markupTint(m.sym);
     return app.changed();
   }
   app.prefs.tools[type][key] = value;

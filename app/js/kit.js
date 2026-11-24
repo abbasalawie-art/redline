@@ -7,6 +7,7 @@ import { TOOL_NAME, COLORS } from './ui.js';
 
 const DEFAULT_STAMPS = ['DEFECT', 'NOT INSTALLED', 'RELOCATE', 'REMOVE', 'AS BUILT', 'CHECKED', 'COMPLETE', 'NOT TO DRAWING'];
 const STAMP_RED = '#e11d2a';
+const ALT_PINK = '#db2777';
 const MY_GROUP = 'My stickers';
 
 export function initKit(app) {
@@ -80,8 +81,48 @@ export function initKit(app) {
   const markColour = () => stampPrefs().markColor || STAMP_RED;
   /** Can this tray entry take the markup colour? Photos and logos brought in as pictures never do. */
   const tintable = e => { const a = e && (assets.get(e.asset) || e.make); return !!e && !e.asDrawn && !!a && (a.kind === 'vec' || !!a.alpha); };
-  const tintFor = e => (mode() === 'markup' && tintable(e) ? markColour() : null);
+  // A symbol the legend already draws in the markup colour (the red dry fire symbols, with red markups) would look
+  // no different marked up. Those go down in a second colour instead.
+  const altColour = () => stampPrefs().altColor || ALT_PINK;
+  const rgbOf = c => [1, 3, 5].map(i => parseInt(c.slice(i, i + 2), 16));
+  const alike = (a, b) => { const x = rgbOf(a), y = rgbOf(b); return Math.hypot(x[0] - y[0], x[1] - y[1], x[2] - y[2]) < 100; };
+  const own = new Map();        // asset id -> the colour most of the symbol is drawn in
+  function ownColour(a) {
+    if (!a || a.kind !== 'vec') return null;
+    if (own.has(a.id)) return own.get(a.id);
+    const weight = new Map();
+    const add = (c, n) => { if (c && /^#[0-9a-f]{6}$/i.test(c) && !/^#f{6}$/i.test(c)) weight.set(c.toLowerCase(), (weight.get(c.toLowerCase()) || 0) + n); };
+    // The line work decides. A tag beside the symbol (usually black) only counts when there is no line work at all.
+    for (const it of a.items) if (it.t !== 'text') { add(it.stroke, it.d.length); add(it.fill, it.d.length); }
+    if (!weight.size) for (const it of a.items) if (it.t === 'text') add(it.color || '#000000', it.s.length);
+    const best = [...weight].sort((x, y) => y[1] - x[1])[0];
+    own.set(a.id, best ? best[0] : null);
+    return own.get(a.id);
+  }
+  const clashes = a => { const c = ownColour(a); return !!c && alike(c, markColour()); };
+  /**
+   * Does this tray entry need the second colour? Decided for its whole group, so that a group marks up in one colour:
+   * if at least half of a group is drawn in the markup colour on the legend, all of it uses the second colour.
+   */
+  function needsSecond(e) {
+    if (!e || e.make) return false;                       // a text stamp always takes the markup colour itself
+    const g = e.group || MY_GROUP;
+    const drawn = lib.filter(x => (x.group || MY_GROUP) === g).map(x => assets.get(x.asset)).filter(a => a && a.kind === 'vec');
+    if (!drawn.length) return clashes(assets.get(e.asset));
+    return drawn.filter(clashes).length * 2 >= drawn.length;
+  }
+  const entryFor = assetId => lib.find(x => x.asset === assetId) || null;
+  /** The colour a symbol takes in Markup. */
+  const markupTint = (assetId, e = entryFor(assetId)) => ((e ? needsSecond(e) : clashes(assets.get(assetId))) ? altColour() : markColour());
+  const tintFor = e => (mode() === 'markup' && tintable(e) ? (e.make ? markColour() : markupTint(e.asset, e)) : null);
   const currentCanTint = () => tintable(current());
+  const currentTint = () => tintFor(current());
+  /** A colour was picked: it becomes the second colour if the symbol in hand is one that uses it, the markup colour otherwise. */
+  function rememberColour(value, m) {
+    const e = m ? entryFor(m.sym) : current();
+    const second = e ? needsSecond(e) : clashes(assets.get(m && m.sym));
+    if (second) stampPrefs().altColor = value; else stampPrefs().markColor = value;
+  }
   function setMode(v) {
     stampPrefs().mode = v;
     app.savePrefs();
@@ -128,8 +169,10 @@ export function initKit(app) {
       body.textContent = '';
       body.append(h('div', { class: 'kit-mode' },
         modeSwitch(mode(), v => { setMode(v); draw(); app.ui.refresh(); }),
-        h('span', { class: 'muted small' }, mode() === 'markup' ? 'Symbols go down in your markup colour.' : 'Symbols go down as they are on the legend.'),
-        mode() === 'markup' ? h('span', { class: 'sw', style: `--c:${markColour()}`, title: 'Markup colour' }) : null));
+        mode() === 'markup'
+          ? h('span', { class: 'muted small kit-mode-note' }, 'Symbols go down in your markup colour', h('span', { class: 'sw', style: `--c:${markColour()}` }),
+            '. Groups the legend already draws in that colour use', h('span', { class: 'sw', style: `--c:${altColour()}` }), '.')
+          : h('span', { class: 'muted small' }, 'Symbols go down as they are on the legend.')));
       const q = filter.trim().toLowerCase();
       const match = e => !q || `${e.name} ${e.tag || ''} ${e.group || ''}`.toLowerCase().includes(q);
       const section = (title, kids, extra) => {
@@ -364,5 +407,5 @@ export function initKit(app) {
     ]);
   }
 
-  app.kit = { open, newStamp, newSignature, signaturePad, snip, currentButton, canTint, currentCanTint, modeSwitch, addFavourite, importFile, entries: () => lib, ready };
+  app.kit = { open, newStamp, newSignature, signaturePad, snip, currentButton, canTint, currentCanTint, currentTint, markupTint, rememberColour, modeSwitch, addFavourite, importFile, entries: () => lib, ready };
 }

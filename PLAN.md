@@ -106,7 +106,7 @@ Files:
 | Feature | What it does |
 |---|---|
 | **Symbols tray** | Legend symbols as stickers, in groups. Tap to place, keeps placing. Turn, resize, recolour. Loaded from a symbol set file made from the legend (`tools/make-kit.py`), kept on the device. |
-| **Markup / Design switch** | Markup places symbols in the markup colour so they stand apart from the drawing; Design places them as they are on the legend. One switch, in the tray and in the options bar; a placed symbol can be switched afterwards. |
+| **Markup / Design switch** | Markup places symbols in the markup colour so they stand apart from the drawing; Design places them as they are on the legend. One switch, in the tray and in the options bar; a placed symbol can be switched afterwards. A group the legend already draws in the markup colour (dry fire, red) marks up in a second colour (pink). |
 | **Your own stickers** | Drag a box around anything on any PDF: it becomes a sticker. Or bring in a picture. |
 | **Stamps** | Words in a box (DEFECT, NOT INSTALLED, RELOCATE and so on), plus your own. |
 | **Saved tools** | The star keeps a tool with its colours and sizes for one-tap reuse. |

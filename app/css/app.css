@@ -315,6 +315,7 @@ g.editing .mk-text { visibility: hidden; }
 
 .kit-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
 .kit-mode { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 10px 0 2px; }
+.kit-mode-note .sw { display: inline-block; width: 14px; height: 14px; margin: 0 1px 0 5px; vertical-align: -2px; }
 .kit-search { flex: 1 1 180px; height: 44px; padding: 0 14px; }
 .sym-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
 .sym {
