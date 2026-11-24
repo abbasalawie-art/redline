@@ -240,6 +240,7 @@ export function initKit(app) {
   async function removeEntries(list, what) {
     if (!window.confirm(`Remove ${what} from the tray? Symbols already placed on drawings stay where they are.`)) return;
     const ids = new Set(list.map(e => e.id));
+    if (list.some(e => e.builtIn)) { app.prefs.builtInRemoved = true; app.savePrefs(); }      // do not bring back what was taken out on purpose
     lib = lib.filter(e => !ids.has(e.id));
     await store.removeLibrary([...ids]).catch(() => {});
     if (ids.has(stampPrefs().lib)) { stampPrefs().lib = null; app.savePrefs(); }
@@ -331,29 +332,59 @@ export function initKit(app) {
   });
 
   // ---- symbol sets --------------------------------------------------------
+  /** Put a symbol set (the contents of a .redlinekit file) into the tray. Returns the entries it made. */
+  async function addKit(kit, fallbackName, extra = {}) {
+    if (!kit || !Array.isArray(kit.symbols)) throw new Error('not a symbol set');
+    const kitName = String(kit.name || fallbackName);
+    const entries = [];
+    let order = Date.now();
+    for (const s of kit.symbols) {
+      if (!s || !Array.isArray(s.items) || !(s.w > 0) || !(s.h > 0)) continue;
+      const items = s.items.map(it => (it.t != null
+        ? { t: 'text', s: String(it.t), x: it.x, y: it.y, size: it.z, color: it.c || '#000000' }
+        : { d: typeof it.d === 'string' ? parsePath(it.d) : it.d, stroke: it.s || null, fill: it.f || null, w: it.w || 0.5, eo: it.eo ? 1 : 0, dash: it.dash || null }));
+      const a = await assets.put({ id: assets.hashId('v', JSON.stringify([s.w, s.h, s.items])), kind: 'vec', w: s.w, h: s.h, items });
+      entries.push({ id: `${kitName}:${s.key || s.name}`, name: String(s.name || 'Symbol'), tag: s.tag ? String(s.tag) : '', group: String(s.group || kitName), asset: a.id, w: s.w, h: s.h, order: order++, kit: kitName, ...extra });
+    }
+    if (!entries.length) throw new Error('empty');
+    const ids = new Set(entries.map(e => e.id));
+    // A newer copy of a set replaces the old one: symbols it no longer has leave the tray.
+    const stale = lib.filter(e => e.kit === kitName && !ids.has(e.id)).map(e => e.id);
+    lib = [...lib.filter(e => !ids.has(e.id) && !stale.includes(e.id)), ...entries];
+    await store.putLibrary(entries);
+    if (stale.length) await store.removeLibrary(stale).catch(() => {});
+    return entries;
+  }
+
+  /**
+   * The symbol set that comes with the app, if there is one (kits/built-in.redlinekit beside index.html).
+   * It goes into the tray by itself the first time, and again whenever the app is updated with a newer one.
+   */
+  async function loadBuiltIn() {
+    await ready;
+    try {
+      const r = await fetch('kits/built-in.redlinekit');
+      if (!r.ok) return;
+      const text = await r.text();
+      const stamp = assets.hashId('k', text);
+      const have = lib.some(e => e.builtIn);
+      if (app.prefs.builtInKit === stamp && (have || app.prefs.builtInRemoved)) return;
+      await addKit(JSON.parse(text), 'Legend', { builtIn: true });
+      app.prefs.builtInKit = stamp;
+      app.prefs.builtInRemoved = false;
+      app.savePrefs();
+      app.ui.refresh();
+    } catch { /* no set comes with this copy of the app, or there is no signal and none is stored: nothing to do */ }
+  }
+  loadBuiltIn();
+
   /** Bring in a .redlinekit file: a set of drawn symbols, usually cut from a legend. */
   async function importFile(file) {
     app.ui.busy('Adding symbols…');
     try {
-      const kit = JSON.parse(await file.text());
-      if (!kit || !Array.isArray(kit.symbols)) throw new Error('not a symbol set');
-      const kitName = String(kit.name || file.name.replace(/\.[^.]+$/, ''));
-      const entries = [];
-      let order = Date.now();
-      for (const s of kit.symbols) {
-        if (!s || !Array.isArray(s.items) || !(s.w > 0) || !(s.h > 0)) continue;
-        const items = s.items.map(it => (it.t != null
-          ? { t: 'text', s: String(it.t), x: it.x, y: it.y, size: it.z, color: it.c || '#000000' }
-          : { d: typeof it.d === 'string' ? parsePath(it.d) : it.d, stroke: it.s || null, fill: it.f || null, w: it.w || 0.5, eo: it.eo ? 1 : 0, dash: it.dash || null }));
-        const a = await assets.put({ id: assets.hashId('v', JSON.stringify([s.w, s.h, s.items])), kind: 'vec', w: s.w, h: s.h, items });
-        entries.push({ id: `${kitName}:${s.key || s.name}`, name: String(s.name || 'Symbol'), tag: s.tag ? String(s.tag) : '', group: String(s.group || kitName), asset: a.id, w: s.w, h: s.h, order: order++, kit: kitName });
-      }
-      if (!entries.length) throw new Error('empty');
-      const ids = new Set(entries.map(e => e.id));
-      lib = [...lib.filter(e => !ids.has(e.id)), ...entries];
-      await store.putLibrary(entries);
+      const entries = await addKit(JSON.parse(await file.text()), file.name.replace(/\.[^.]+$/, ''));
       app.ui.busy(null);
-      app.ui.toast(`${entries.length} symbols added from ${kitName}`);
+      app.ui.toast(`${entries.length} symbols added from ${entries[0].kit}`);
       if (app.doc) open();
     } catch (err) {
       console.error(err);

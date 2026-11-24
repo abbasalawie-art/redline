@@ -122,7 +122,11 @@ export function initUI(app) {
     if (!entry) { rail.append(h('div', { class: 'rail-gap' })); continue; }
     rail.append(h('button', {
       class: 'tool', 'data-rail': entry.id, 'aria-label': entry.label, html: `${icon(entry.id)}<span>${entry.label}</span>`,
-      onclick: () => (entry.open ? entry.open(app) : app.setTool(last[entry.id] || entry.tools[0])),
+      onclick: () => {
+        // Tapping the tool already in hand puts it down again.
+        if (entry.id !== 'select' && entry.tools.includes(app.tool)) return app.setTool('select');
+        return entry.open ? entry.open(app) : app.setTool(last[entry.id] || entry.tools[0]);
+      },
     }));
   }
   const lockBtn = h('button', {
@@ -549,7 +553,7 @@ export function initUI(app) {
     else if (key === 'escape') { app.tools.cancelPending({ discard: true }); app.select(null); app.setTool('select'); }
     else if (key === 'enter' && app.tools.tapping) { e.preventDefault(); app.tools.polyDone(); }
     else if (key === 'enter' && app.selected() && TEXT_TYPES.has(app.selected().type) && app.selected().box) { e.preventDefault(); app.startEdit(app.selected()); }
-    else if (SHORTCUT[key]) app.setTool(SHORTCUT[key]);
+    else if (SHORTCUT[key]) app.setTool(SHORTCUT[key] === app.tool ? 'select' : SHORTCUT[key]);
     else if (key === 'pagedown' && app.doc.pageIndex < app.doc.pageCount - 1) app.goPage(app.doc.pageIndex + 1);
     else if (key === 'pageup' && app.doc.pageIndex > 0) app.goPage(app.doc.pageIndex - 1);
   });

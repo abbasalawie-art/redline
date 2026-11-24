@@ -19,7 +19,7 @@ import { initPages } from './pages.js';
 import { initSearch } from './search.js';
 import { initReport } from './report.js';
 
-const VERSION = '0.2.2';
+const VERSION = '0.2.3';
 const asset = p => new URL(p, import.meta.url).href;
 pdfjs.GlobalWorkerOptions.workerSrc = asset('../vendor/pdfjs/pdf.worker.min.mjs');
 
