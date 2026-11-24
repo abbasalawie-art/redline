@@ -30,7 +30,6 @@ export const TOOL_NAME = {
   select: 'Select', cloud: 'Cloud', cloudplus: 'Cloud+', callout: 'Callout', text: 'Text', retype: 'Retype', arrow: 'Arrow', pen: 'Pen',
   hl: 'Highlight', rect: 'Box', ellipse: 'Ellipse', stamp: 'Symbol', pin: 'Pin', dim: 'Length', path: 'Run', area: 'Area', sig: 'Signature', snip: 'New sticker',
 };
-const SHORTCUT = { v: 'select', c: 'cloud', k: 'cloudplus', q: 'callout', t: 'text', a: 'arrow', p: 'pen', h: 'hl', r: 'rect', e: 'ellipse', n: 'pin', m: 'dim' };
 const CAN_FAVOURITE = new Set(['cloud', 'cloudplus', 'callout', 'text', 'arrow', 'pen', 'hl', 'rect', 'ellipse', 'dim', 'path', 'area']);
 
 export const COLORS = [
@@ -289,6 +288,12 @@ export function initUI(app) {
     }
     lockBtn.setAttribute('aria-pressed', String(app.lock));
     lockBtn.innerHTML = `${icon(app.lock ? 'lock' : 'unlock')}<span>${app.lock ? 'Locked' : 'Lock'}</span>`;
+    // Save shows only where the browser can write files (a PC). A dot marks changes that are not in the file yet.
+    const saveBtn = $('btn-save'), canSave = !!(app.files && app.files.canPick);
+    saveBtn.hidden = !canSave;
+    saveBtn.disabled = !d;
+    saveBtn.classList.toggle('unsaved', !!(d && d.dirty));
+    saveBtn.title = d && d.handle ? `Save to ${d.name} (Ctrl+S)` : 'Save (Ctrl+S)';
     renderProps();
   }
 
@@ -315,19 +320,30 @@ export function initUI(app) {
     openSheet(title, [h('p', {}, message), h('div', { class: 'row' }, h('button', { class: 'btn primary', onclick: closeSheet }, 'OK'))]);
   }
 
+  /** Ask a question with a button per answer. Gives the number of the answer, or -1 if the sheet was just closed. */
+  function choose(title, message, answers) {
+    return new Promise(resolve => {
+      let done = false;
+      const finish = i => { if (!done) { done = true; resolve(i); } };
+      openSheet(title, [h('p', {}, message), h('div', { class: 'row' },
+        answers.map((a, i) => h('button', { class: i === 0 ? 'btn primary' : 'btn', onclick: () => { finish(i); closeSheet(); } }, a)))], { onClose: () => finish(-1) });
+    });
+  }
+
   /** Hand a finished file to the user: the iOS share sheet where there is one, a download otherwise. */
-  function deliver(bytes, name, mime, note) {
+  function deliver(bytes, name, mime, note, onDone = null) {
     const file = new File([bytes], name, { type: mime });
     const size = file.size;
     const canShare = !!(navigator.canShare && navigator.canShare({ files: [file] }));
     const share = async () => {
-      try { await navigator.share({ files: [file], title: name }); closeSheet(); }
+      try { await navigator.share({ files: [file], title: name }); if (onDone) onDone(); closeSheet(); }
       catch (e) { if (e && e.name !== 'AbortError') toast('Sharing did not work. Try Download.'); }
     };
     const download = () => {
       const url = URL.createObjectURL(file);
       const a = h('a', { href: url, download: name });
       document.body.append(a); a.click(); a.remove();
+      if (onDone) onDone();
       setTimeout(() => URL.revokeObjectURL(url), 60000);
     };
     openSheet('Ready', [
@@ -370,7 +386,7 @@ export function initUI(app) {
         h('img', { src: 'icons/icon-192.png', alt: '' }),
         h('h1', {}, 'Redline'),
         app.doc ? h('button', { class: 'tb icon', 'aria-label': 'Back to drawing', html: icon('close'), onclick: () => showHome(false) }) : null),
-      h('button', { class: 'big', html: `${icon('plus')}<span>Open a PDF</span>`, onclick: () => $('file').click() }),
+      h('button', { class: 'big', html: `${icon('plus')}<span>Open a PDF</span>`, onclick: () => app.files.openPicker() }),
       h('h2', {}, 'On this device'),
       docs.length ? list : h('div', { class: 'empty' }, 'Nothing here yet. PDFs you open are kept on this device with their markups, so they are ready when there is no signal.'),
       ios && !standalone ? h('div', { class: 'note', html: '<b>Install it:</b> tap the Share button in Safari, then <b>Add to Home Screen</b>. Redline then opens full screen and works offline.' }) : null));
@@ -433,7 +449,8 @@ export function initUI(app) {
       busy('Building PDF…');
       try {
         const bytes = await app.buildPdf({ flatten, photoPages: withPhotos.checked });
-        deliver(bytes, app.exportName(), 'application/pdf', flatten ? 'Markups are part of the page and cannot be moved.' : 'Markups stay editable in Revu and other PDF apps.');
+        // An editable copy holds everything, so once it has been handed over the drawing counts as saved.
+        deliver(bytes, flatten ? app.exportName('flattened') : app.doc.name, 'application/pdf', flatten ? 'Markups are part of the page and cannot be moved.' : 'Markups stay editable in Revu and other PDF apps. Saved over the original, it is the same drawing with your markups in it.', flatten ? null : () => app.markSaved());
       } catch (e) {
         console.error(e);
         alert('Export did not work', String((e && e.message) || e));
@@ -506,6 +523,7 @@ export function initUI(app) {
       item('search', 'Find text', 'Search every page of the drawing for a word or a number.', () => app.search.open()),
       item('scale', 'Drawing scale', `For measuring. This page: ${scaleLabel(app.scaleOf(app.doc.pageIndex))}.`, scaleSheet),
       item('doc', 'Text to Word', 'Copy the words out of this PDF into a Word file. Layout and pictures are not kept.', () => app.search.textToWord()),
+      item('edit', 'Keyboard shortcuts', 'The same keys as Revu. F1 shows this list at any time.', () => app.keys.help()),
       item('settings', 'Settings', 'Your name on markups, and Pencil and finger behaviour.', settingsSheet),
     ]);
   }
@@ -524,7 +542,7 @@ export function initUI(app) {
     openSheet('Settings', [
       h('div', { class: 'field' }, h('label', { for: 'set-author' }, 'Your name on markups'), name, h('small', {}, 'Shown as the author in Revu and on the site report.')),
       h('label', { class: 'switch', for: 'set-finger' }, finger, h('span', {}, 'Draw with a finger even after using Apple Pencil')),
-      h('p', { class: 'muted' }, 'Keyboard: V select, C cloud, K cloud+, Q callout, T text, A arrow, P pen, H highlight, R box, E ellipse, N pin, M measure.'),
+      h('p', { class: 'muted' }, 'With a keyboard, the keys are the same as Revu. Press F1 for the list.'),
       h('p', { class: 'muted' }, `Redline ${app.version}. ${usage} PDFs, photos and markups stay on this device.`),
     ]);
   }
@@ -539,24 +557,8 @@ export function initUI(app) {
   $('btn-list').addEventListener('click', () => app.report.open());
   $('btn-more').addEventListener('click', moreSheet);
   $('btn-export').addEventListener('click', exportSheet);
+  $('btn-save').addEventListener('click', () => app.files.save());
   $('btn-fit').addEventListener('click', () => app.viewer.fit());
 
-  document.addEventListener('keydown', e => {
-    if (!app.doc || (e.target.closest && e.target.closest('input, textarea, select')) || !sheet.hidden || !home.hidden) return;
-    const mod = e.metaKey || e.ctrlKey, key = e.key.toLowerCase();
-    if (mod && key === 'z') { e.preventDefault(); e.shiftKey ? app.redo() : app.undo(); }
-    else if (mod && key === 'y') { e.preventDefault(); app.redo(); }
-    else if (mod && key === 'd') { e.preventDefault(); app.duplicateSelected(); }
-    else if (mod && key === 'f') { e.preventDefault(); app.search.open(); }
-    else if (mod) return;
-    else if (key === 'delete' || key === 'backspace') { e.preventDefault(); app.deleteSelected(); }
-    else if (key === 'escape') { app.tools.cancelPending({ discard: true }); app.select(null); app.setTool('select'); }
-    else if (key === 'enter' && app.tools.tapping) { e.preventDefault(); app.tools.polyDone(); }
-    else if (key === 'enter' && app.selected() && TEXT_TYPES.has(app.selected().type) && app.selected().box) { e.preventDefault(); app.startEdit(app.selected()); }
-    else if (SHORTCUT[key]) app.setTool(SHORTCUT[key] === app.tool ? 'select' : SHORTCUT[key]);
-    else if (key === 'pagedown' && app.doc.pageIndex < app.doc.pageCount - 1) app.goPage(app.doc.pageIndex + 1);
-    else if (key === 'pageup' && app.doc.pageIndex > 0) app.goPage(app.doc.pageIndex - 1);
-  });
-
-  app.ui = { refresh, toast, hint, busy, alert, showHome, openSheet, closeSheet, closePop, polyBar, deliver, scaleSheet, pagesSheet, h };
+  app.ui = { refresh, toast, hint, busy, alert, choose, showHome, openSheet, closeSheet, closePop, polyBar, deliver, scaleSheet, pagesSheet, exportSheet, settingsSheet, h };
 }

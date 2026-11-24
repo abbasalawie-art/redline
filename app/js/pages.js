@@ -48,11 +48,15 @@ export function initPages(app) {
     await app.replaceBytes(await pdf.save(), markups, at);
   }
 
-  const turn = () => run('Turning…', async () => {
+  /** Turn the page in view clockwise by `quarters` quarter turns (3 = one turn anticlockwise). */
+  const turn = (quarters = 1) => run('Turning…', async () => {
     const i = app.doc.pageIndex, { w, h: ph } = app.doc.pageInfo;
     const pdf = await openDoc(), page = pdf.getPage(i);
-    page.setRotation(PDFLib.degrees((page.getRotation().angle + 90) % 360));
-    await commit(pdf, p => p, i, m => { if (m.page === i) rotateQuarter(m, w, ph); });
+    page.setRotation(PDFLib.degrees((page.getRotation().angle + 90 * quarters) % 360));
+    await commit(pdf, p => p, i, m => {
+      if (m.page !== i) return;
+      for (let q = 0, pw = w, hh = ph; q < quarters; q++, [pw, hh] = [hh, pw]) rotateQuarter(m, pw, hh);
+    });
   });
 
   const move = d => run('Moving…', async () => {
@@ -122,7 +126,7 @@ export function initPages(app) {
     return h('div', { class: 'page-tools' },
       h('div', { class: 'muted' }, `Page ${i + 1} of ${d.pageCount}${d.writable ? '' : ' · this PDF cannot be changed'}`),
       d.writable ? h('div', { class: 'row tight' },
-        b('turn', 'Turn', turn),
+        b('turn', 'Turn', () => turn(1)),
         b('left', 'Earlier', () => move(-1), i === 0),
         b('right', 'Later', () => move(1), i >= d.pageCount - 1),
         b('plus', 'Blank page', blank),
@@ -131,5 +135,7 @@ export function initPages(app) {
         b('trash', 'Delete', remove, d.pageCount < 2, 'danger')) : null);
   }
 
-  app.pagesTool = { toolbar };
+  // From the keyboard there is no Pages sheet to redraw afterwards.
+  const quiet = fn => (...a) => { reopen = () => {}; return fn(...a); };
+  app.pagesTool = { toolbar, turn: quiet(turn), blank: quiet(blank), remove: quiet(remove), extract: quiet(extract), addPdf: quiet(() => $('file-merge').click()) };
 }

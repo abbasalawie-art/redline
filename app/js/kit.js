@@ -438,5 +438,15 @@ export function initKit(app) {
     ]);
   }
 
-  app.kit = { open, newStamp, newSignature, signaturePad, snip, currentButton, canTint, currentCanTint, currentTint, markupTint, rememberColour, modeSwitch, addFavourite, importFile, entries: () => lib, ready };
+  /** Use the nth saved tool (the number keys do this). */
+  function favourite(i) {
+    const f = (app.prefs.favourites || [])[i];
+    if (!f) return app.ui.toast(`No saved tool ${i + 1} yet. The star in the options bar saves one.`);
+    app.prefs.tools[f.tool] = { ...app.prefs.tools[f.tool], ...f.style };
+    app.savePrefs();
+    app.setTool(f.tool);
+    app.ui.toast(f.name);
+  }
+  const picture = () => $('file-photo').click();
+  app.kit = { favourite, picture, open, newStamp, newSignature, signaturePad, snip, currentButton, canTint, currentCanTint, currentTint, markupTint, rememberColour, modeSwitch, addFavourite, importFile, entries: () => lib, ready };
 }

@@ -55,6 +55,20 @@ export function createViewer(els, onView) {
     setView({ scale: fitScale, tx: (s.w - W * fitScale) / 2, ty: (s.h - H * fitScale) / 2 }, { settle: true });
   }
 
+  /** The page as wide as the screen, keeping the part that is in view near the top. */
+  function fitWidth() {
+    const s = stageSize(), scale = Math.max(0.02, (s.w - 24) / W);
+    const top = Math.max(0, -view.ty / view.scale);
+    setView({ scale, tx: 12, ty: Math.min(12, s.h / 2 - 1) - top * scale }, { settle: true });
+  }
+
+  /** One point on the page = 1/72 inch on the screen, as near as a browser can say. */
+  function actualSize() {
+    const s = stageSize(), scale = 96 / 72;
+    const cx = (s.w / 2 - view.tx) / view.scale, cy = (s.h / 2 - view.ty) / view.scale;
+    setView({ scale, tx: s.w / 2 - cx * scale, ty: s.h / 2 - cy * scale }, { settle: true });
+  }
+
   /** Zoom by `factor`, keeping the stage point (sx, sy) fixed. */
   function zoomAt(factor, sx, sy) {
     const px = (sx - view.tx) / view.scale, py = (sy - view.ty) / view.scale;
@@ -197,7 +211,7 @@ export function createViewer(els, onView) {
   }
 
   return {
-    view, setView, fit, zoomAt, toPage, toStage, settle, showPage, setDocument, pageInfo, resized, renderRegion,
+    view, setView, fit, fitWidth, actualSize, zoomAt, toPage, toStage, settle, showPage, setDocument, pageInfo, resized, renderRegion,
     get size() { return { w: W, h: H }; },
     get fitScale() { return fitScale; },
   };

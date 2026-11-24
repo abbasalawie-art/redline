@@ -230,6 +230,8 @@ export function initSearch(app) {
     }
   }
 
-  app.search = { reset, render, open, textToWord, itemsOf };
+  /** Step to the next or previous match, or open Find if nothing has been searched for yet. */
+  const step = dir => (results.length ? show((at + dir + results.length) % results.length) : open());
+  app.search = { reset, render, open, step, textToWord, itemsOf };
   app.retype = { at: retypeAt, cover };
 }

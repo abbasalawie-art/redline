@@ -2,7 +2,7 @@
 import * as pdfjs from '../vendor/pdfjs/pdf.min.mjs';
 import * as PDFLib from '../vendor/pdf-lib/pdf-lib.esm.min.js';
 import { makeFont } from './text.js';
-import { buildShapes, TEXT_TYPES, FILL_TYPES, HEAD_TYPES, SHAPE_FILL_TYPES, MEASURE_TYPES } from './shapes.js';
+import { buildShapes, translate, TEXT_TYPES, FILL_TYPES, HEAD_TYPES, SHAPE_FILL_TYPES, MEASURE_TYPES } from './shapes.js';
 import { el, drawMarkup, drawSelection, setAssets } from './render-svg.js';
 import { createViewer } from './viewer.js';
 import { exportPdf, importPdf } from './pdf-export.js';
@@ -18,8 +18,10 @@ import { initForms } from './forms.js';
 import { initPages } from './pages.js';
 import { initSearch } from './search.js';
 import { initReport } from './report.js';
+import { initFiles } from './files.js';
+import { initKeys } from './keys.js';
 
-const VERSION = '0.2.3';
+const VERSION = '0.3.0';
 const asset = p => new URL(p, import.meta.url).href;
 pdfjs.GlobalWorkerOptions.workerSrc = asset('../vendor/pdfjs/pdf.worker.min.mjs');
 
@@ -90,6 +92,8 @@ let saveTimer = 0;
 const metaOf = () => ({
   id: app.doc.id, name: app.doc.name, updated: Date.now(), pageCount: app.doc.pageCount, pageIndex: app.doc.pageIndex,
   markups: app.markups, writable: app.doc.writable, srcSize: app.doc.srcSize, form: app.doc.form, scale: app.doc.scale,
+  dirty: !!app.doc.dirty, handle: app.doc.handle || undefined, fileTime: app.doc.fileTime || undefined,
+  fp: app.doc.fp || undefined, changedAt: app.doc.changedAt || undefined,
 });
 function saveNow() {
   clearTimeout(saveTimer);
@@ -98,7 +102,13 @@ function saveNow() {
 const scheduleSave = () => { clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, 400); };
 app.saveSoon = scheduleSave;
 
-app.changed = () => { app.renderAll(); app.ui.refresh(); scheduleSave(); };
+const touched = () => { if (app.doc) { app.doc.dirty = true; app.doc.changedAt = Date.now(); } };
+app.changed = () => { touched(); app.renderAll(); app.ui.refresh(); scheduleSave(); };
+/** Something other than a markup changed (a form answer): remember it, and that the drawing now differs from its file. */
+app.touch = () => { touched(); app.ui.refresh(); scheduleSave(); };
+/** The drawing as it stands has just been written to a file or exported. */
+app.markSaved = size => { if (!app.doc) return; app.doc.dirty = false; if (size) app.doc.srcSize = size; app.ui.refresh(); saveNow(); };
+app.saveNow = saveNow;
 app.pushUndo = () => {
   app.undoStack.push(JSON.stringify(app.markups));
   if (app.undoStack.length > 100) app.undoStack.shift();
@@ -163,6 +173,62 @@ app.duplicateSelected = () => {
   app.changed();
 };
 app.nextPin = () => Math.max(0, ...app.markups.filter(m => m.type === 'pin').map(m => m.n || 0)) + 1;
+
+// ---- copy and paste, nudging, order -------------------------------------------
+let clip = null;
+app.copySelected = () => { const m = app.selected(); if (m) clip = JSON.parse(JSON.stringify(m)); return !!m; };
+app.cutSelected = () => { if (app.copySelected()) app.deleteSelected(); };
+/** Paste the copied markup onto the page in view: where it was (`inPlace`), or in the middle of the screen. */
+app.paste = inPlace => {
+  if (!clip || !app.doc) return;
+  if (app.editing) app.commitEdit();
+  const c = JSON.parse(JSON.stringify(clip));
+  c.id = newId();
+  c.page = app.doc.pageIndex;
+  if (c.type === 'pin') c.n = app.nextPin();
+  if (!inPlace) {
+    const b = app.shapesOf(c).bbox, st = app.el.stage.getBoundingClientRect(), v = app.viewer.view, s = app.viewer.size;
+    const cx = clamp((st.width / 2 - v.tx) / v.scale, 0, s.w), cy = clamp((st.height / 2 - v.ty) / v.scale, 0, s.h);
+    translate(c, cx - (b.x + b.w / 2), cy - (b.y + b.h / 2));
+  }
+  app.pushUndo();
+  app.markups.push(c);
+  if (app.tool !== 'select') app.setTool('select');
+  app.sel = c.id;
+  app.changed();
+};
+app.nudge = (dx, dy) => {
+  const m = app.selected();
+  if (!m) return;
+  if (app.editing) app.commitEdit();
+  app.pushUndo();
+  translate(m, dx, dy);
+  app.changed();
+};
+/** Move the selected markup in front of or behind the others on its page: 'up', 'down', 'front' or 'back'. */
+app.reorder = where => {
+  const m = app.selected();
+  if (!m) return;
+  const peers = app.markups.filter(x => x.page === m.page), i = peers.indexOf(m);
+  const j = where === 'front' ? peers.length - 1 : where === 'back' ? 0 : clamp(i + (where === 'up' ? 1 : -1), 0, peers.length - 1);
+  if (j === i) return;
+  app.pushUndo();
+  peers.splice(i, 1);
+  peers.splice(j, 0, m);
+  let k = 0;
+  app.markups = app.markups.map(x => (x.page === m.page ? peers[k++] : x));
+  app.changed();
+};
+app.selectNext = dir => {
+  if (!app.doc) return;
+  const list = app.markups.filter(m => m.page === app.doc.pageIndex);
+  if (!list.length) return;
+  if (app.editing) app.commitEdit();
+  const i = list.findIndex(m => m.id === app.sel);
+  const next = list[i < 0 ? (dir > 0 ? 0 : list.length - 1) : (i + dir + list.length) % list.length];
+  if (app.tool !== 'select') app.setTool('select');
+  app.select(next.id);
+};
 
 // ---- styles -----------------------------------------------------------------
 /** The look a new markup gets on this page, from the tool's remembered options. */
@@ -263,10 +329,14 @@ async function showDoc(meta, bytes, pdf) {
     id: meta.id, name: meta.name, bytes, pdf: null, pageCount: 0, pageIndex: 0, pageInfo: null,
     writable: meta.writable !== false, password: meta.password, srcSize: meta.srcSize,
     form: meta.form || {}, scale: { def: null, pages: {}, ...(meta.scale || {}) },
+    // dirty = it has changes that are not in any file yet. Drawings from before this was tracked count as changed if marked up.
+    dirty: meta.dirty ?? (meta.markups || []).length > 0, handle: meta.handle || null, fileTime: meta.fileTime || null,
+    fp: meta.fp || null, changedAt: meta.changedAt || meta.updated || null,
   };
   doc.pdf = pdf || await loadPdfjs(bytes, doc);
   doc.pageCount = doc.pdf.numPages;
   doc.pageIndex = clamp(meta.pageIndex || 0, 0, doc.pageCount - 1);
+  if (!doc.fp) doc.fp = (doc.pdf.fingerprints || [])[0] || null;
   await assets.load(assets.idsOf(meta.markups));
   if (app.editing) app.commitEdit();
   app.tools.cancelPending({ discard: true });
@@ -286,18 +356,66 @@ async function showDoc(meta, bytes, pdf) {
   if (old && old.pdf) closePdf(old.pdf);
 }
 
-app.openBytes = async (name, bytes) => {
+// One drawing opens at a time: a file handed over while another is still loading waits its turn.
+let opening = Promise.resolve();
+const inTurn = fn => { const p = opening.then(fn, fn); opening = p.catch(() => {}); return p; };
+
+/**
+ * Open a PDF. `handle` (PC only) is the file it came from, so Save can write back into it; `modified` is when
+ * the file was last changed.
+ *
+ * The same drawing may already be on this device. "The same" means the same file name and the same PDF identity
+ * (the ID inside the file, which stays with it through every save), so that two different E101.pdf from two jobs
+ * are never taken for each other. Then:
+ *   - the very same file: carry on where it was left
+ *   - a different version, and the copy here has unsaved work: ask
+ *   - a different version that is older than the last change made here: carry on with the copy here
+ *   - otherwise the file is the newer one and takes the place of the copy here
+ */
+app.openBytes = (name, bytes, { handle = null, modified = 0 } = {}) => inTurn(async () => {
   app.ui.busy('Opening…');
+  const probe = { password: undefined };
+  let pdf = null;
   try {
-    // Already on this device? Carry on where it was left.
-    const twin = (await store.listDocs().catch(() => [])).find(d => d.name === name && d.srcSize === bytes.length);
-    if (twin) { await app.openStored(twin.id); return; }
-    const probe = { password: undefined };
-    const pdf = await loadPdfjs(bytes, probe);
+    // What is on screen may have changed a moment ago: put it on record first, so the check below sees it.
+    clearTimeout(saveTimer);
+    if (app.doc) await store.saveDoc(metaOf()).catch(err => console.warn('autosave', err));
+    const named = (await store.listDocs().catch(() => [])).filter(d => d.name === name);
+    let replaces = null;
+    if (named.length) {
+      pdf = await loadPdfjs(bytes, probe);
+      const fp = (pdf.fingerprints || [])[0] || null;
+      const mine = named.filter(d => (d.fp ? d.fp === fp : d.srcSize === bytes.length));
+      const twin = mine.find(d => d.srcSize === bytes.length);
+      const old = twin || mine[0];
+      let keep = !!twin;
+      if (old && !twin) {
+        if (old.dirty ?? (old.markups || []).length > 0) {
+          app.ui.busy(null);
+          const pick = await app.ui.choose('This drawing is already on this device',
+            'The copy here has changes that were never saved or exported. Opening the file keeps that copy as well, under the same name.',
+            ['Open the file', 'Carry on with my copy']);
+          if (pick !== 0 && pick !== 1) { closePdf(pdf); return; }
+          keep = pick === 1;
+          app.ui.busy('Opening…');
+        } else if (modified && old.changedAt && modified < old.changedAt) keep = true;
+        else replaces = old;
+      }
+      if (keep) {
+        closePdf(pdf);
+        await openStoredNow(old.id, handle);
+        if (!twin) app.ui.toast('Carried on with the copy on this device');
+        return;
+      }
+    }
+    if (!pdf) pdf = await loadPdfjs(bytes, probe);
     const imp = await importPdf(PDFLib, bytes, probe.password);
     for (const a of imp.assets || []) await assets.put(a);
     const changed = imp.baseBytes !== bytes;
-    const meta = { id: newId(), name, pageIndex: 0, markups: imp.markups, writable: imp.writable, password: probe.password, srcSize: bytes.length };
+    const meta = {
+      id: newId(), name, pageIndex: 0, markups: imp.markups, writable: imp.writable, password: probe.password, srcSize: bytes.length,
+      dirty: false, handle, fp: (pdf.fingerprints || [])[0] || null, changedAt: modified || Date.now(),
+    };
     // Measurements carry the scale they were made at: pick the drawing scale back up from them.
     const scaled = imp.markups.filter(m => MEASURE_TYPES.has(m.type) && m.mpp);
     if (scaled.length) meta.scale = { def: scaled[0].mpp, pages: Object.fromEntries(scaled.map(m => [m.page, m.mpp])) };
@@ -305,27 +423,32 @@ app.openBytes = async (name, bytes) => {
     if (changed) { closePdf(pdf); await showDoc(meta, imp.baseBytes); }
     else await showDoc(meta, imp.baseBytes, pdf);
     saveNow();
+    if (replaces) { await store.removeDoc(replaces.id).catch(() => {}); assets.sweep(); }
     if (!imp.writable) app.ui.alert('View only', 'Redline can show this PDF but cannot write markups into it. Re-save it from Revu, or print it to a new PDF, to mark it up.');
     else if (imp.secured) app.ui.alert('This PDF is locked by its author', 'Whoever made it set it to block changes. Redline can still add your markups, but the copy you export will not carry that lock. Only go ahead if you are allowed to mark up this drawing.');
+    else if (replaces) app.ui.toast('Opened the newer copy of this drawing');
     else if (imp.markups.length) app.ui.toast(`${imp.markups.length} Redline markups are editable again`);
   } catch (e) {
     console.error(e);
     app.ui.alert('That file would not open', e && e.name === 'PasswordException' ? 'A password is needed to open it.' : 'It may not be a PDF, or it may be damaged.');
   } finally { app.ui.busy(null); }
-};
+});
 
-app.openStored = async id => {
+async function openStoredNow(id, handle = null) {
   app.ui.busy('Opening…');
   try {
     const [meta, buf] = await Promise.all([store.getDoc(id), store.loadFile(id)]);
     if (!meta || !buf) throw new Error('missing');
+    if (handle) meta.handle = handle;
     await showDoc(meta, new Uint8Array(buf));
+    if (handle) saveNow();
   } catch (e) {
     console.error(e);
     app.ui.alert('That file would not open', 'It is no longer stored on this device.');
     app.ui.showHome(true);
   } finally { app.ui.busy(null); }
-};
+}
+app.openStored = id => inTurn(() => openStoredNow(id));
 
 app.removeStored = async id => {
   await store.removeDoc(id);
@@ -350,6 +473,7 @@ app.replaceBytes = async (bytes, markups, pageIndex) => {
   if (app.editing) app.commitEdit();
   app.tools.cancelPending({ discard: true });
   doc.bytes = bytes;
+  touched();
   doc.pdf = await loadPdfjs(bytes, doc);
   doc.pageCount = doc.pdf.numPages;
   app.markups = markups;
@@ -396,11 +520,11 @@ app.buildPdf = async ({ flatten = false, photoPages = true, markups = app.markup
   await assets.load(assets.idsOf(markups));
   return exportPdf(PDFLib, bytes, markups, {
     font: app.font, author: app.prefs.author || 'Redline', flatten, matrices, password: app.doc.password,
-    assets, form: app.doc.form, photoPages, title: app.doc.name.replace(/\.pdf$/i, ''),
+    assets, form: app.doc.form, photoPages, title: app.doc.name.replace(/\.pdf$/i, ''), docId: app.doc.fp,
   });
 };
 app.exportName = (suffix = 'markup', ext = 'pdf') => {
-  const base = app.doc.name.replace(/\.pdf$/i, '').replace(/ \((markup|report|text|pages)\)$/i, '');
+  const base = app.doc.name.replace(/\.pdf$/i, '').replace(/ \((markup|flattened|report|text|pages)\)$/i, '');
   return `${base} (${suffix}).${ext}`;
 };
 
@@ -416,12 +540,14 @@ async function start() {
   initPages(app);
   initSearch(app);
   initReport(app);
+  initFiles(app);
+  initKeys(app);
   app.ui.refresh();
 
   $('file').addEventListener('change', async e => {
     const f = e.target.files[0];
     e.target.value = '';
-    if (f) await app.openBytes(f.name, new Uint8Array(await f.arrayBuffer()));
+    if (f) await app.openBytes(f.name, new Uint8Array(await f.arrayBuffer()), { modified: f.lastModified });
   });
   window.addEventListener('dragover', e => e.preventDefault());
   window.addEventListener('drop', async e => {
@@ -429,8 +555,14 @@ async function start() {
     const files = [...(e.dataTransfer?.files || [])];
     const kit = files.find(x => /\.(redlinekit|json)$/i.test(x.name));
     if (kit) return app.kit.importFile(kit);
-    const f = files.find(x => /pdf$/i.test(x.type) || /\.pdf$/i.test(x.name));
-    if (f) await app.openBytes(f.name, new Uint8Array(await f.arrayBuffer()));
+    const i = files.findIndex(x => /pdf$/i.test(x.type) || /\.pdf$/i.test(x.name));
+    if (i < 0) return;
+    // On a PC the dropped file can be written back to: ask for it before the event is over.
+    const item = [...(e.dataTransfer.items || [])].filter(x => x.kind === 'file')[i];
+    const asked = item && item.getAsFileSystemHandle ? item.getAsFileSystemHandle().catch(() => null) : null;
+    const bytes = new Uint8Array(await files[i].arrayBuffer());
+    const handle = asked ? await asked : null;
+    await app.openBytes(files[i].name, bytes, { handle: handle && handle.kind === 'file' ? handle : null, modified: files[i].lastModified });
   });
   window.addEventListener('resize', () => app.viewer.resized());
   document.addEventListener('visibilitychange', () => { if (document.hidden) saveNow(); });

@@ -88,7 +88,7 @@ export function initForms(app) {
 
   function set(f, v) {
     app.doc.form[f.name] = v;
-    app.saveSoon();
+    app.touch();
     render();
   }
 

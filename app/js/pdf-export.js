@@ -141,18 +141,20 @@ function fillForm(PDFLib, doc, values, font, flatten) {
 }
 
 /**
- * opts: { font, author, flatten, matrices, password, assets, form, photoPages, title }
+ * opts: { font, author, flatten, matrices, password, assets, form, photoPages, title, docId }
  *   font        from text.js makeFont()
  *   matrices    optional per-page view→PDF matrices (from the viewer); worked out from the page if absent
  *   assets      get(id) → { id, kind: 'vec' | 'img', w, h, items | bytes + mime, alpha }
  *   form        { fieldName: value } answers typed into the PDF's form fields
  *   photoPages  add a page at the back for each pin's photo (default true)
+ *   docId       the drawing's identity (hex); written as the PDF's ID if the file has none, so later saves stay recognisable
  */
 export async function exportPdf(PDFLib, baseBytes, markups, opts = {}) {
   const { PDFString, PDFHexString, PDFName } = PDFLib;
-  const { font, author = 'Redline', flatten = false, matrices = null, password, assets = null, form = null, photoPages = true, title = '' } = opts;
+  const { font, author = 'Redline', flatten = false, matrices = null, password, assets = null, form = null, photoPages = true, title = '', docId = null } = opts;
   const doc = await loadDoc(PDFLib, baseBytes, password);
   const ctx = doc.context;
+  if (docId && /^[0-9a-f]{8,}$/i.test(docId) && !ctx.trailerInfo.ID) ctx.trailerInfo.ID = ctx.obj([PDFHexString.of(docId), PDFHexString.of(docId)]);
   const pages = doc.getPages();
   const helv = ctx.register(ctx.obj({ Type: 'Font', Subtype: 'Type1', BaseFont: 'Helvetica', Encoding: 'WinAnsiEncoding' }));
   const gsRefs = new Map();

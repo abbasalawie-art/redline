@@ -23,13 +23,64 @@ Redline is live at **<https://abbasalawie-art.github.io/redline/>** (GitHub Page
 
 It is the same app at the same address: open **<https://abbasalawie-art.github.io/redline/>** in Chrome or Edge. To give it its own window and taskbar icon, click the install icon at the right-hand end of the address bar (Chrome: *Install Redline*; Edge: *App available*). It then opens with no signal as well.
 
-- Drag a PDF onto the window, or use **Open a PDF**. Mouse wheel zooms, Shift + wheel moves sideways, the middle button drags the page.
-- Keys: V select, C cloud, K cloud+, Q callout, T text, A arrow, P pen, H highlight, R box, E ellipse, N pin, M measure, Ctrl+Z undo, Ctrl+F find.
+- **Open** with the Open a PDF button, Ctrl+O, or by dragging a PDF onto the window. Once Redline is installed, Windows also offers it under right-click › *Open with* for PDFs.
+- **Save (Ctrl+S)** writes your markups straight back into the PDF you opened, still editable. The first time, the browser asks whether Redline may change that file. **Save as** is Ctrl+Shift+S. A red dot on the Save button means there are changes that are not in the file yet.
+- Revu locks a PDF while it has it open, so close it there before saving from Redline.
+- If the file was changed somewhere else since you opened it (the iPad, Revu, a colleague), Save says so and offers to save a separate copy instead.
+- Mouse wheel zooms, Shift + wheel moves sideways, the middle button drags the page.
 - Each browser keeps its own copy of the tray and of the drawings. Load the symbol set once per browser (**Symbols › Symbol set**).
 
-### Moving a drawing between the iPad and the PC
+Open and Save in place need Chrome or Edge on a PC. Safari on the iPad cannot write into a file, so there you export.
 
-The PDF is what travels. On the device you are leaving: **Export › Editable markups**, and save it to OneDrive. On the other device: open that file in Redline. The markups come back editable, with their symbols, photos, pins and scale. Work you have not exported stays on the device it was done on.
+### Keyboard shortcuts
+
+The same keys as Bluebeam Revu, for everything Redline also does. **F1** shows the full list in the app. Pressing the key of the tool already in hand puts it down.
+
+| | |
+|---|---|
+| V | Select |
+| T / W | Text box / Typewriter (text with no box) |
+| Q, C, K | Callout, Cloud, Cloud+ |
+| A / L | Arrow / Line |
+| P, H, R, E | Pen, Highlight, Rectangle, Ellipse |
+| S, I, G, X | Stamp (the Symbols tray), Image, Snapshot (cut a sticker), Signature |
+| N | Note (a pin with a note and photo) |
+| M, Shift+M | Measure, next measuring tool |
+| Alt+Shift+L / Q / A | Length, Polylength (cable run), Area |
+| 1 to 9 | Saved tools |
+| Ctrl+Z, Ctrl+Y | Undo, Redo |
+| Ctrl+C, Ctrl+X, Ctrl+V, Ctrl+Shift+V | Copy, Cut, Paste, Paste in place |
+| Arrow keys, Shift+arrows | Nudge the selected markup |
+| Tab, Shift+Tab | Next, previous markup |
+| F2 | Edit the text |
+| Ctrl+] and Ctrl+[ (with Shift: all the way) | Bring forward, send backward |
+| Ctrl+O, Ctrl+S, Ctrl+Shift+S | Open, Save, Save as |
+| Ctrl+P, Ctrl+E | Export (to print, email or share) |
+| Ctrl+Shift+M | Flatten into a copy |
+| Ctrl+Shift+R, Ctrl+Shift+N, Ctrl+Shift+X, Ctrl+Shift+D | Rotate page, blank page, extract pages, delete page |
+| Ctrl+9, Ctrl+0, Ctrl+8 | Fit page, fit width, actual size |
+| = and - | Zoom in, zoom out |
+| PageDown, PageUp, Home, End | Next, previous, first, last page |
+| Ctrl+F, F3 | Search, next match |
+| Alt+L, Alt+T, Alt+X | Markups list, Thumbnails (Pages), Tool Chest (Symbols) |
+
+A few of Revu's keys belong to the browser and cannot be taken over: Ctrl+W, Ctrl+N, Ctrl+T and, in a browser tab, Ctrl+Shift+N.
+
+### One drawing on the iPad and the PC
+
+Keep the drawing in OneDrive and treat that file as the drawing.
+
+- **On the PC:** open it from the OneDrive folder, mark it up, Ctrl+S.
+- **On the iPad:** open the same file through **Open a PDF**, mark it up, then **Export › Editable markups** and save it back to the same OneDrive folder under the same name, replacing the old one. An editable export now keeps the drawing's own name for exactly this.
+
+Either way the markups stay editable, with their symbols, photos, pins and scale. Each device also keeps its own working copy, and when you open a file it already knows:
+
+- the very same file: you carry on where you left off
+- a newer version from the other device: it takes the place of the copy on this device
+- a version older than your last change here: you carry on with the copy on this device
+- a different version while the copy here has work that was never saved or exported: you are asked which to open
+
+Two drawings are only treated as the same if they have the same name and are the same PDF underneath, so an E101.pdf from one job never replaces an E101.pdf from another. Work you have not saved or exported exists only on the device it was done on.
 
 ### Publishing an update
 
@@ -126,7 +177,7 @@ Fillable PDFs show their fields tinted blue. In Select, tap a field to type, tic
 
 ### Export
 
-**Export** gives *Editable markups* (Revu can still move and restyle them) or *Flattened* (burnt into the page). Opening an exported file in Redline again, on any device, brings the markups back as editable, with their symbols and photos.
+**Export** gives *Editable markups* (Revu can still move and restyle them; the file keeps the drawing's name) or *Flattened* (burnt into the page; named "… (flattened)"). Opening an exported file in Redline again, on any device, brings the markups back as editable, with their symbols and photos.
 
 ## What is where
 

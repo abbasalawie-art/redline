@@ -107,6 +107,8 @@ Files:
 |---|---|
 | **Symbols tray** | Legend symbols as stickers, in groups. Tap to place, keeps placing. Turn, resize, recolour. Loaded from a symbol set file made from the legend (`tools/make-kit.py`), kept on the device. |
 | **Markup / Design switch** | Markup places symbols in the markup colour so they stand apart from the drawing; Design places them as they are on the legend. One switch, in the tray and in the options bar; a placed symbol can be switched afterwards. A group the legend already draws in the markup colour (dry fire, red) marks up in a second colour (pink). |
+| **PC as well as iPad** | The same app in Chrome or Edge, installable. On a PC it opens a PDF from its folder (and from *Open with*), and Ctrl+S saves the markups back into that same file. Each device recognises a drawing it already has and works out which copy is newer. |
+| **Revu's keyboard shortcuts** | The same keys as Revu for every tool and command Redline shares with it. F1 lists them. |
 | **Your own stickers** | Drag a box around anything on any PDF: it becomes a sticker. Or bring in a picture. |
 | **Stamps** | Words in a box (DEFECT, NOT INSTALLED, RELOCATE and so on), plus your own. |
 | **Saved tools** | The star keeps a tool with its colours and sizes for one-tap reuse. |
@@ -174,6 +176,8 @@ iPad app/
       search.js         find text, retype, text to Word
       report.js         markups list, symbol counts, site report
       office.js         writes Word and Excel files
+      files.js          PC: open a PDF from its folder, save back into it
+      keys.js           keyboard shortcuts (Revu's)
       store.js          documents, pictures, the tray and settings on the device
       icons.js
     icons/
@@ -236,6 +240,8 @@ Every markup carries its own drawn appearance, so it looks the same in iOS Files
 Stages 0 to 8 and the toolkit (10, 11) are done. The app is live at <https://abbasalawie-art.github.io/redline/>. Nothing has run on a real iPad yet.
 
 The toolkit was checked in the browser on this PC and against Revu 21: every new tool draws, exports and re-imports; symbols, pins and measurements arrive in Revu as named stamps, lines and shapes with their values; a filled form reads back field by field; the Word and Excel reports open in Word and Excel; page tools keep the markups on the right pages; 150 symbols on an A1 sheet redraw in about 12 ms.
+
+Open and save in place on the PC was checked with the browser's own file handles; the Windows dialogs themselves (Open, Save as, the permission question, *Open with* from Explorer) can only be clicked by a person and were not exercised.
 
 Not checked for the toolkit, because it needs the device: the camera, the photo picker, choosing a symbol set through the Files app, and how the tray and sheets feel under a finger.
 

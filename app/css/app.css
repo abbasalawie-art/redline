@@ -345,6 +345,10 @@ table.counts { width: 100%; border-collapse: collapse; -webkit-user-select: text
 .counts th { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
 .counts th:first-child, .counts td:first-child { text-align: left; }
 .counts .sum td { font-weight: 800; border-bottom: 0; }
+#btn-save { position: relative; }
+#btn-save.unsaved::after { content: ""; position: absolute; top: 8px; right: 8px; width: 9px; height: 9px; border-radius: 50%; background: var(--danger); box-shadow: 0 0 0 2px var(--panel); }
+table.keys td { text-align: left; padding: 7px 10px; }
+table.keys td:last-child { text-align: right; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .page-tools { margin-bottom: 14px; }
 .page-tools .muted { margin-bottom: 8px; }
 .choice.with-icon { flex-direction: row; align-items: center; gap: 14px; }
