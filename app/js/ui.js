@@ -60,7 +60,7 @@ const PROPS = {
   hl: ['color', 'width'],
   rect: ['color', 'fill', 'fillOpacity', 'width', 'opacity'],
   ellipse: ['color', 'fill', 'fillOpacity', 'width', 'opacity'],
-  stamp: ['tint', 'scale', 'rot', 'opacity'],
+  stamp: ['mode', 'markColor', 'scale', 'rot', 'opacity'],
   pin: ['color', 'size'],
   dim: ['color', 'width', 'fontSize'],
   path: ['color', 'width', 'fontSize'],
@@ -70,7 +70,7 @@ const PROPS = {
 };
 const LABEL = {
   color: 'Line', fill: 'Fill', fillOpacity: 'Fill', textColor: 'Text', width: 'Width', fontSize: 'Size', head: 'Arrow', border: 'Border',
-  opacity: 'Opacity', tint: 'Colour', scale: 'Size', rot: 'Turn', size: 'Size', shape: 'Shape',
+  opacity: 'Opacity', markColor: 'Colour', scale: 'Size', rot: 'Turn', size: 'Size', shape: 'Shape',
 };
 const TIPS = {
   retype: 'Tap a line of text to retype it. Or drag a box over anything to cover it and type on top.',
@@ -173,10 +173,9 @@ export function initUI(app) {
 
   function choices(key, type, val) {
     const pick = v => { closePop(); app.setProp(key, v); };
-    if (key === 'color' || key === 'textColor' || key === 'fill' || key === 'tint') {
+    if (key === 'color' || key === 'textColor' || key === 'fill' || key === 'markColor') {
       const grid = h('div', { class: 'pop-grid' });
       if (key === 'fill') grid.append(h('button', { class: 'chip swatch', 'aria-label': 'No fill', 'aria-pressed': String(val == null), onclick: () => pick(null) }, swatch(null)));
-      if (key === 'tint') grid.append(h('button', { class: 'chip wide2', 'aria-pressed': String(val == null), onclick: () => pick(null) }, 'As drawn'));
       for (const [c, name] of COLORS) grid.append(h('button', { class: 'chip swatch', 'aria-label': name, title: name, 'aria-pressed': String(val === c), onclick: () => pick(c) }, swatch(c)));
       return grid;
     }
@@ -202,7 +201,7 @@ export function initUI(app) {
     if (key === 'color' && (type === 'pen' || type === 'hl' || type === 'arrow' || type === 'pin' || type === 'sig' || MEASURE_TYPES.has(type))) label = 'Colour';
     const lbl = h('span', { class: 'lbl' }, label);
     const b = h('button', { class: 'prop', 'data-key': key, 'aria-label': label });
-    if (key === 'color' || key === 'textColor' || key === 'fill' || key === 'tint') b.append(swatch(val), lbl);
+    if (key === 'color' || key === 'textColor' || key === 'fill' || key === 'markColor') b.append(swatch(val), lbl);
     else if (key === 'width') b.append(widthLine(type === 'hl' ? val / 3 : val), lbl);
     else if (key === 'fontSize') b.append(lbl, val === 'auto' ? 'Auto' : `${Math.round(val * 10) / 10} pt`);
     else if (key === 'head') { b.innerHTML = headIcon(val); b.append(lbl); }
@@ -248,7 +247,12 @@ export function initUI(app) {
     for (const key of PROPS[type] || []) {
       if (key === 'fillOpacity' && !app.propValue('fill') && type !== 'area') continue;      // only once a fill colour is chosen
       if (key === 'shape' && m) continue;
-      if (key === 'tint' && m && !app.kit.canTint(m)) continue;
+      if (key === 'mode' || key === 'markColor') {
+        // Markup: the symbol in your markup colour. Design: as it is on the legend.
+        if (!(m ? app.kit.canTint(m) : app.kit.currentCanTint())) continue;
+        if (key === 'mode') { props.append(app.kit.modeSwitch(app.propValue('mode'), v => app.setProp('mode', v))); continue; }
+        if (app.propValue('mode') !== 'markup') continue;
+      }
       props.append(propButton(type, key));
     }
     // Kept in view at the right-hand end even when the options scroll.

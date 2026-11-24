@@ -13,7 +13,11 @@ export function initKit(app) {
   const { h } = app.ui, assets = app.assets, $ = id => document.getElementById(id);
   let lib = [];                 // tray entries: { id, name, tag, group, asset, w, h, order, auto }
   let editing = false, filter = '';
-  const ready = store.listLibrary().then(list => { lib = list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0)); }).catch(() => {});
+  // The tray's contents, and the drawings behind them, are brought into memory at start-up so a symbol is ready the moment it is chosen.
+  const ready = store.listLibrary()
+    .then(list => { lib = list.sort((a, b) => (a.order ?? 0) - (b.order ?? 0)); return assets.load(lib.map(e => e.asset)); })
+    .then(() => { if (app.ui) app.ui.refresh(); })
+    .catch(() => {});
   if (!app.prefs.stamps) app.prefs.stamps = DEFAULT_STAMPS.slice();
 
   const stampPrefs = () => app.prefs.tools.stamp;
@@ -55,7 +59,7 @@ export function initKit(app) {
     const nw = e.w * f, nh = e.h * f, w = nw * (d.scale || 1), hh = nh * (d.scale || 1);
     return {
       id: newId(), page: app.doc.pageIndex, type: 'stamp', k, sym: e.asset, name: e.tag ? `${e.tag} ${e.name}` : e.name, nw, nh,
-      rect: { x: p.x - w / 2, y: p.y - hh / 2, w, h: hh }, rot: d.rot || 0, tint: d.tint || null, opacity: d.opacity ?? 1,
+      rect: { x: p.x - w / 2, y: p.y - hh / 2, w, h: hh }, rot: d.rot || 0, tint: tintFor(e), opacity: d.opacity ?? 1,
     };
   }
 
@@ -69,6 +73,25 @@ export function initKit(app) {
 
   const canTint = m => { const a = assets.get(m.sym); return !!a && (a.kind === 'vec' || a.alpha); };
 
+  // ---- Markup or Design ---------------------------------------------------
+  // Markup: symbols go down in your markup colour, so they stand apart from the drawing.
+  // Design: symbols go down exactly as they are on the legend.
+  const mode = () => (stampPrefs().mode === 'design' ? 'design' : 'markup');
+  const markColour = () => stampPrefs().markColor || STAMP_RED;
+  /** Can this tray entry take the markup colour? Photos and logos brought in as pictures never do. */
+  const tintable = e => { const a = e && (assets.get(e.asset) || e.make); return !!e && !e.asDrawn && !!a && (a.kind === 'vec' || !!a.alpha); };
+  const tintFor = e => (mode() === 'markup' && tintable(e) ? markColour() : null);
+  const currentCanTint = () => tintable(current());
+  function setMode(v) {
+    stampPrefs().mode = v;
+    app.savePrefs();
+  }
+  /** The Markup | Design switch, for the options bar and the tray. */
+  function modeSwitch(value, onpick) {
+    return h('div', { class: 'seg', role: 'group', 'aria-label': 'Symbol colours' },
+      [['markup', 'Markup'], ['design', 'Design']].map(([id, name]) => h('button', { 'aria-pressed': String(id === value), onclick: () => onpick(id) }, name)));
+  }
+
   function choose(entry) {
     if (entry.make) assets.put(entry.make);
     stampPrefs().lib = entry.id;
@@ -81,7 +104,7 @@ export function initKit(app) {
   function currentButton() {
     const e = current(), a = e ? (assets.get(e.asset) || e.make) : null;
     if (e && !a) assets.load([e.asset]).then(() => app.ui.refresh());
-    return h('button', { class: 'prop sym-now', onclick: open, html: `${a ? assets.thumb(a, 30) : icon('kit', 22)}<span>${e ? esc(e.tag ? `${e.tag} · ${e.name}` : e.name) : 'Choose a symbol'}</span>` });
+    return h('button', { class: 'prop sym-now', onclick: open, html: `${a ? assets.thumb(a, 30, tintFor(e)) : icon('kit', 22)}<span>${e ? esc(e.tag ? `${e.tag} · ${e.name}` : e.name) : 'Choose a symbol'}</span>` });
   }
   const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
 
@@ -89,7 +112,7 @@ export function initKit(app) {
   function tile(e, onclick, onremove) {
     const a = assets.get(e.asset) || e.make;
     const t = h('button', { class: 'sym', title: e.name, 'aria-pressed': String(stampPrefs().lib === e.id && app.tool === 'stamp'), onclick: () => (editing && onremove ? onremove() : onclick()) },
-      h('span', { class: 'sym-pic', html: a ? assets.thumb(a, 54) : '' }),
+      h('span', { class: 'sym-pic', html: a ? assets.thumb(a, 54, tintFor(e)) : '' }),
       h('span', { class: 'sym-name' }, e.tag ? h('b', {}, e.tag) : null, e.tag ? ` ${e.name}` : e.name));
     if (editing && onremove) t.append(h('span', { class: 'sym-x', html: icon('close', 16) }));
     return t;
@@ -103,6 +126,10 @@ export function initKit(app) {
     const body = h('div', { class: 'kit' });
     const draw = () => {
       body.textContent = '';
+      body.append(h('div', { class: 'kit-mode' },
+        modeSwitch(mode(), v => { setMode(v); draw(); app.ui.refresh(); }),
+        h('span', { class: 'muted small' }, mode() === 'markup' ? 'Symbols go down in your markup colour.' : 'Symbols go down as they are on the legend.'),
+        mode() === 'markup' ? h('span', { class: 'sw', style: `--c:${markColour()}`, title: 'Markup colour' }) : null));
       const q = filter.trim().toLowerCase();
       const match = e => !q || `${e.name} ${e.tag || ''} ${e.group || ''}`.toLowerCase().includes(q);
       const section = (title, kids, extra) => {
@@ -149,7 +176,7 @@ export function initKit(app) {
         body.append(h('div', { class: 'note' }, h('b', {}, 'No symbols yet. '),
           'Bring in a symbol set (a .redlinekit file) made from your legend, or cut your own sticker from any drawing with New sticker.'));
       }
-      if (q && !body.children.length) body.append(h('div', { class: 'empty' }, 'Nothing matches.'));
+      if (q && body.children.length < 2) body.append(h('div', { class: 'empty' }, 'Nothing matches.'));
     };
 
     const search = h('input', { type: 'search', class: 'kit-search', placeholder: 'Find a symbol', value: filter, 'aria-label': 'Find a symbol' });
@@ -209,8 +236,8 @@ export function initKit(app) {
   }
 
   // ---- your own stickers --------------------------------------------------
-  async function addEntry(a, name, w, hh, group = MY_GROUP) {
-    const e = { id: newId(), name, group, asset: a.id, w, h: hh, order: Date.now() };
+  async function addEntry(a, name, w, hh, group = MY_GROUP, extra = {}) {
+    const e = { id: newId(), name, group, asset: a.id, w, h: hh, order: Date.now(), ...extra };
     lib.push(e);
     await store.putLibrary([e]).catch(err => console.warn('sticker not kept', err));
     return e;
@@ -228,7 +255,7 @@ export function initKit(app) {
       const n = lib.filter(e => (e.group || MY_GROUP) === MY_GROUP).length + 1;
       const name = (window.prompt('Name this sticker:', `Sticker ${n}`) || `Sticker ${n}`).trim().slice(0, 40);
       const e = await addEntry(a, name, rect.w, rect.h);
-      Object.assign(stampPrefs(), { lib: e.id, scale: 1, rot: 0, tint: null });
+      Object.assign(stampPrefs(), { lib: e.id, scale: 1, rot: 0 });
       app.savePrefs();
       app.setTool('stamp');
       app.ui.toast(`${name} is in your tray. Tap to place it.`);
@@ -247,8 +274,9 @@ export function initKit(app) {
     try {
       const a = await assets.fromFile(f, { max: 1600, keepAlpha: true });
       const k = app.doc.pageInfo.k, w = 160 * k;
-      const e = await addEntry(a, f.name.replace(/\.[^.]+$/, '').slice(0, 40) || 'Picture', w, (w * a.h) / a.w);
-      Object.assign(stampPrefs(), { lib: e.id, scale: 1, rot: 0, tint: null });
+      // A photo or a logo keeps its own colours whichever way the switch is set.
+      const e = await addEntry(a, f.name.replace(/\.[^.]+$/, '').slice(0, 40) || 'Picture', w, (w * a.h) / a.w, MY_GROUP, { asDrawn: true });
+      Object.assign(stampPrefs(), { lib: e.id, scale: 1, rot: 0 });
       app.savePrefs();
       app.ui.closeSheet();
       app.setTool('stamp');
@@ -336,5 +364,5 @@ export function initKit(app) {
     ]);
   }
 
-  app.kit = { open, newStamp, newSignature, signaturePad, snip, currentButton, canTint, addFavourite, importFile, entries: () => lib, ready };
+  app.kit = { open, newStamp, newSignature, signaturePad, snip, currentButton, canTint, currentCanTint, modeSwitch, addFavourite, importFile, entries: () => lib, ready };
 }

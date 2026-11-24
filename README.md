@@ -68,7 +68,8 @@ Open `http://<this PC's IP address>:5173` in Safari on the iPad. This is for a l
 
 The tray (the **Symbols** button) holds:
 
-- **Symbol sets.** Legend symbols as true line work: sharp at any zoom, and they can be turned, resized and recoloured (*As drawn* keeps the legend colours). Tap **Symbol set** and choose a `.redlinekit` file to add one. Symbol sets are kept on the device, not in the hosted app.
+- **Symbol sets.** Legend symbols as true line work: sharp at any zoom, and they can be turned and resized. Tap **Symbol set** and choose a `.redlinekit` file to add one. Symbol sets are kept on the device, not in the hosted app.
+- **Markup or Design.** The switch at the top of the tray, and in the options bar while placing, sets how symbols go down. **Markup** puts them in your markup colour (red unless you change **Colour**), so they stand apart from the drawing. **Design** puts them down exactly as they are on the legend. Tap a placed symbol to switch it afterwards. Photos and logos brought in with **Picture** always keep their own colours.
 - **Your own stickers.** **New sticker**, then drag a box around anything on any PDF. It is saved to the tray as a picture with a see-through background. **Picture** adds a photo or logo from the device.
 - **Stamps.** Words in a box: DEFECT, NOT INSTALLED, RELOCATE and so on. **New stamp** adds your own.
 - **Signature.** Sign once with a finger or the Pencil, then tap wherever it goes.

@@ -111,18 +111,19 @@ export async function fromCanvas(canvas) {
 export const newAssetId = () => 'a' + Array.from({ length: 15 }, () => 'abcdefghijklmnopqrstuvwxyz0123456789'[Math.floor(Math.random() * 36)]).join('');
 
 /** A small picture of an asset for a tile or a list row. */
-export function thumb(a, size = 64) {
+export function thumb(a, size = 64, tint = null) {
   if (!a) return '';
+  const col = c => (tint && c && !/^#f{3}(f{3})?$/i.test(c) ? tint : c);
   if (a.kind === 'img') return `<img src="${a.url}" alt="" style="max-width:${size}px;max-height:${size}px">`;
   const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;');
   const r2 = n => Math.round(n * 100) / 100;
   let body = '';
   for (const it of a.items) {
     if (it.t === 'text') {
-      body += `<text x="${r2(it.x)}" y="${r2(it.y + it.size * 0.36)}" font-size="${r2(it.size)}" text-anchor="middle" fill="${it.color || '#000'}" font-family="Helvetica, Arial, sans-serif">${esc(it.s)}</text>`;
+      body += `<text x="${r2(it.x)}" y="${r2(it.y + it.size * 0.36)}" font-size="${r2(it.size)}" text-anchor="middle" fill="${col(it.color || '#000000')}" font-family="Helvetica, Arial, sans-serif">${esc(it.s)}</text>`;
     } else {
       const d = it.d.map(c => (c[0] === 'Z' ? 'Z' : c[0] + c.slice(1).map(r2).join(' '))).join('');
-      body += `<path d="${d}" fill="${it.fill || 'none'}" stroke="${it.stroke || 'none'}" stroke-width="${r2(it.w || 0.5)}" stroke-linecap="round" stroke-linejoin="round"${it.eo ? ' fill-rule="evenodd"' : ''}${it.dash ? ` stroke-dasharray="${it.dash.join(' ')}"` : ''}/>`;
+      body += `<path d="${d}" fill="${col(it.fill) || 'none'}" stroke="${col(it.stroke) || 'none'}" stroke-width="${r2(it.w || 0.5)}" stroke-linecap="round" stroke-linejoin="round"${it.eo ? ' fill-rule="evenodd"' : ''}${it.dash ? ` stroke-dasharray="${it.dash.join(' ')}"` : ''}/>`;
     }
   }
   const pad = Math.max(a.w, a.h) * 0.06;

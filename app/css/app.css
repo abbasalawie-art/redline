@@ -314,6 +314,7 @@ g.editing .mk-text { visibility: hidden; }
 .sigpad { width: 100%; height: auto; aspect-ratio: 5 / 2; margin-bottom: 14px; border: 2px dashed var(--line); border-radius: 14px; background: #fff; touch-action: none; }
 
 .kit-bar { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
+.kit-mode { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 10px 0 2px; }
 .kit-search { flex: 1 1 180px; height: 44px; padding: 0 14px; }
 .sym-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 8px; }
 .sym {

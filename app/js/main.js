@@ -19,7 +19,7 @@ import { initPages } from './pages.js';
 import { initSearch } from './search.js';
 import { initReport } from './report.js';
 
-const VERSION = '0.2.0';
+const VERSION = '0.2.1';
 const asset = p => new URL(p, import.meta.url).href;
 pdfjs.GlobalWorkerOptions.workerSrc = asset('../vendor/pdfjs/pdf.worker.min.mjs');
 
@@ -34,7 +34,7 @@ const TOOL_DEFAULTS = {
   hl: { color: '#facc15', width: 14, opacity: 0.45 },
   rect: { color: RED, fill: null, fillOpacity: 0.25, width: 2, opacity: 1 },
   ellipse: { color: RED, fill: null, fillOpacity: 0.25, width: 2, opacity: 1 },
-  stamp: { lib: null, scale: 1, rot: 0, tint: null, opacity: 1 },
+  stamp: { lib: null, scale: 1, rot: 0, mode: 'markup', markColor: RED, opacity: 1 },
   pin: { color: RED, size: 1, opacity: 1 },
   dim: { color: BLUE, width: 1.5, fontSize: 'auto', opacity: 1 },
   path: { color: BLUE, width: 1.5, fontSize: 'auto', opacity: 1 },
@@ -183,12 +183,24 @@ app.propValue = key => {
   if (key === 'fillOpacity') return m.fillOpacity ?? (m.type === 'area' ? 0.15 : 1);
   if (key === 'scale') return m.nw ? Math.round((m.rect.w / m.nw) * 100) / 100 : 1;
   if (key === 'rot') return m.rot || 0;
+  if (key === 'mode' && m.type === 'stamp') return m.tint ? 'markup' : 'design';
+  if (key === 'markColor' && m.type === 'stamp') return m.tint || app.prefs.tools.stamp.markColor;
   if (key === 'size') return m.size ?? 1;
   return m[key] ?? null;
 };
 app.setProp = (key, value) => {
   const m = app.selected(), type = m ? m.type : app.tool;
   if (!app.prefs.tools[type]) return;
+  if (type === 'stamp' && (key === 'mode' || key === 'markColor')) {
+    // Markup or Design, and the markup colour: remembered for the next symbols, applied to the one selected.
+    const d = app.prefs.tools.stamp;
+    d[key] = value;
+    store.savePrefs(app.prefs);
+    if (!m) return app.ui.refresh();
+    app.pushUndo();
+    m.tint = key === 'markColor' ? value : value === 'design' ? null : d.markColor;
+    return app.changed();
+  }
   app.prefs.tools[type][key] = value;
   if (type === 'text' && key === 'textColor') app.prefs.tools.text.color = value;
   store.savePrefs(app.prefs);
