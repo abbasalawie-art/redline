@@ -1,13 +1,20 @@
 // What stays on the device: recent documents (with their markups) and preferences.
-const DB_NAME = 'redline', DB_VERSION = 1;
+const DB_NAME = 'redline', DB_VERSION = 2;
 let dbPromise = null;
 
 function db() {
   dbPromise ??= new Promise((resolve, reject) => {
     const r = indexedDB.open(DB_NAME, DB_VERSION);
-    r.onupgradeneeded = () => {
-      r.result.createObjectStore('docs', { keyPath: 'id' });   // name, pages, markups, last page…
-      r.result.createObjectStore('files');                      // the PDF bytes, by doc id
+    r.onupgradeneeded = e => {
+      const d = r.result;
+      if (e.oldVersion < 1) {
+        d.createObjectStore('docs', { keyPath: 'id' });        // name, pages, markups, last page…
+        d.createObjectStore('files');                           // the PDF bytes, by doc id
+      }
+      if (e.oldVersion < 2) {
+        d.createObjectStore('assets', { keyPath: 'id' });      // pictures and symbol drawings that markups use
+        d.createObjectStore('library', { keyPath: 'id' });     // the symbols tray: name, group, which asset
+      }
     };
     r.onsuccess = () => resolve(r.result);
     r.onerror = () => reject(r.error);
@@ -37,6 +44,15 @@ export const removeDoc = id => run(['docs', 'files'], 'readwrite', t => {
   t.objectStore('docs').delete(id);
   t.objectStore('files').delete(id);
 });
+
+// ---- pictures, symbols and the tray ---------------------------------------
+export const getAsset = id => run(['assets'], 'readonly', t => t.objectStore('assets').get(id));
+export const putAsset = a => run(['assets'], 'readwrite', t => { t.objectStore('assets').put(a); });
+export const assetKeys = () => run(['assets'], 'readonly', t => t.objectStore('assets').getAllKeys());
+export const deleteAssets = ids => run(['assets'], 'readwrite', t => { for (const id of ids) t.objectStore('assets').delete(id); });
+export const listLibrary = async () => (await run(['library'], 'readonly', t => t.objectStore('library').getAll())) || [];
+export const putLibrary = entries => run(['library'], 'readwrite', t => { for (const e of entries) t.objectStore('library').put(e); });
+export const removeLibrary = ids => run(['library'], 'readwrite', t => { for (const id of ids) t.objectStore('library').delete(id); });
 
 /** Ask the browser not to clear our storage when the device runs low. */
 export async function keepStorage() {

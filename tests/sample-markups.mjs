@@ -1,6 +1,7 @@
 // A set of markups covering every tool, used by the export test.
 export function sampleMarkups(page, k = 1) {
   const base = { page, k, opacity: 1, width: 2, color: '#e11d2a', fill: null, textColor: '#e11d2a', fontSize: 12, head: 'closed', border: false };
+  const mpp = 0.0352778;      // 1:100
   let n = 0;
   const id = () => `T${page}${String(n++).padStart(3, '0')}${Math.random().toString(36).slice(2, 8).toUpperCase()}`;
   return [
@@ -16,5 +17,19 @@ export function sampleMarkups(page, k = 1) {
     { ...base, id: id(), type: 'hl', color: '#facc15', width: 14, opacity: 0.45, pts: [[60, 30], [200, 30], [420, 32]] },
     { ...base, id: id(), type: 'rect', color: '#ea580c', fill: '#fed7aa', opacity: 0.5, rect: { x: 720, y: 300, w: 90, h: 60 } },
     { ...base, id: id(), type: 'ellipse', color: '#0891b2', width: 3, rect: { x: 720, y: 400, w: 90, h: 60 } },
+    // ---- added with the toolkit ----
+    { ...base, id: id(), type: 'cloud', color: '#7c3aed', pts: [[440, 470], [560, 460], [600, 520], [520, 560], [450, 540]] },
+    { id: id(), page, k, type: 'stamp', sym: 'vEXIT', name: 'Exit sign', rect: { x: 60, y: 520, w: 45, h: 33 }, rot: 0, tint: null, opacity: 1 },
+    { id: id(), page, k, type: 'stamp', sym: 'vEXIT', name: 'Exit sign', rect: { x: 130, y: 520, w: 45, h: 33 }, rot: 30, tint: '#e11d2a', opacity: 1 },
+    { id: id(), page, k, type: 'stamp', sym: 'pDISC', name: 'Disc', rect: { x: 200, y: 520, w: 30, h: 30 }, rot: 0, tint: null, opacity: 1 },
+    { id: id(), page, k, type: 'stamp', sym: 'pDISC', name: 'Disc', rect: { x: 245, y: 520, w: 30, h: 30 }, rot: 45, tint: '#e11d2a', opacity: 0.8 },
+    { id: id(), page, k, type: 'stamp', sym: 'jPHOTO', name: 'Photo', rect: { x: 290, y: 515, w: 60, h: 40 }, rot: 15, tint: null, opacity: 1 },
+    { id: id(), page, k, type: 'stamp', sym: 'gone', name: 'Missing', rect: { x: 365, y: 520, w: 30, h: 30 }, rot: 0, tint: null, opacity: 1 },
+    { id: id(), page, k, type: 'pin', n: page * 10 + 1, p: { x: 640, y: 480 }, color: '#e11d2a', opacity: 1, note: 'Exit sign missing above door D12', photo: 'jPHOTO' },
+    { id: id(), page, k, type: 'pin', n: page * 10 + 2, p: { x: 680, y: 480 }, color: '#1d4ed8', opacity: 1, note: '', photo: null },
+    { ...base, id: id(), type: 'dim', color: '#1d4ed8', width: 1.5, fontSize: 10, mpp, p1: { x: 60, y: 235 }, p2: { x: 330, y: 235 } },
+    { ...base, id: id(), type: 'path', color: '#0891b2', width: 1.5, fontSize: 10, mpp, pts: [[620, 200], [700, 200], [700, 260], [790, 260]] },
+    { ...base, id: id(), type: 'area', color: '#15803d', fill: '#15803d', fillOpacity: 0.15, width: 1.5, fontSize: 10, mpp, pts: [[610, 380], [700, 380], [700, 450], [610, 450]] },
+    { ...base, id: id(), type: 'sig', color: '#111111', width: 1.2, rect: { x: 300, y: 30, w: 110, h: 40 }, strokes: [[[0.02, 0.7], [0.2, 0.1], [0.3, 0.9], [0.45, 0.3], [0.6, 0.8]], [[0.55, 0.5], [0.98, 0.45]]] },
   ];
 }

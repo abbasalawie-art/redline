@@ -2,23 +2,30 @@
 import * as pdfjs from '../vendor/pdfjs/pdf.min.mjs';
 import * as PDFLib from '../vendor/pdf-lib/pdf-lib.esm.min.js';
 import { makeFont } from './text.js';
-import { buildShapes, TEXT_TYPES, FILL_TYPES, HEAD_TYPES, SHAPE_FILL_TYPES } from './shapes.js';
-import { el, drawMarkup, drawSelection } from './render-svg.js';
+import { buildShapes, TEXT_TYPES, FILL_TYPES, HEAD_TYPES, SHAPE_FILL_TYPES, MEASURE_TYPES } from './shapes.js';
+import { el, drawMarkup, drawSelection, setAssets } from './render-svg.js';
 import { createViewer } from './viewer.js';
 import { exportPdf, importPdf } from './pdf-export.js';
 import { clamp } from './geometry.js';
 import * as store from './store.js';
+import * as assets from './assets.js';
 import { initTools, newId } from './tools.js';
 import { initEditor } from './editor.js';
 import { initUI } from './ui.js';
+import { initKit } from './kit.js';
+import { initPins } from './pins.js';
+import { initForms } from './forms.js';
+import { initPages } from './pages.js';
+import { initSearch } from './search.js';
+import { initReport } from './report.js';
 
-const VERSION = '0.1.0';
+const VERSION = '0.2.0';
 const asset = p => new URL(p, import.meta.url).href;
 pdfjs.GlobalWorkerOptions.workerSrc = asset('../vendor/pdfjs/pdf.worker.min.mjs');
 
-const RED = '#e11d2a';
+const RED = '#e11d2a', BLUE = '#1d4ed8';
 const TOOL_DEFAULTS = {
-  cloud: { color: RED, fill: null, fillOpacity: 0.25, width: 2, opacity: 1 },
+  cloud: { color: RED, fill: null, fillOpacity: 0.25, width: 2, opacity: 1, shape: 'box' },
   cloudplus: { color: RED, fill: null, fillOpacity: 0.25, textColor: RED, fontSize: 'auto', width: 2, head: 'none', border: false, opacity: 1 },
   callout: { color: RED, fill: null, textColor: RED, fontSize: 'auto', width: 2, head: 'closed', border: true, opacity: 1 },
   text: { color: RED, fill: null, textColor: RED, fontSize: 'auto', width: 1, border: false, opacity: 1 },
@@ -27,28 +34,36 @@ const TOOL_DEFAULTS = {
   hl: { color: '#facc15', width: 14, opacity: 0.45 },
   rect: { color: RED, fill: null, fillOpacity: 0.25, width: 2, opacity: 1 },
   ellipse: { color: RED, fill: null, fillOpacity: 0.25, width: 2, opacity: 1 },
+  stamp: { lib: null, scale: 1, rot: 0, tint: null, opacity: 1 },
+  pin: { color: RED, size: 1, opacity: 1 },
+  dim: { color: BLUE, width: 1.5, fontSize: 'auto', opacity: 1 },
+  path: { color: BLUE, width: 1.5, fontSize: 'auto', opacity: 1 },
+  area: { color: BLUE, fill: null, fillOpacity: 0.15, width: 1.5, fontSize: 'auto', opacity: 1 },
+  sig: { color: '#111111', width: 1, opacity: 1 },
 };
 
 const $ = id => document.getElementById(id);
 const saved = store.loadPrefs();
 const app = {
-  version: VERSION, PDFLib, font: makeFont(PDFLib),
-  el: { stage: $('stage'), layer: $('layer'), base: $('base'), detail: $('detail'), svg: $('overlay'), marks: $('marks'), draft: $('draft'), sel: $('sel'), editor: $('editor') },
-  doc: null,              // { id, name, pdf, bytes, pageCount, pageIndex, pageInfo, writable, password, srcSize }
+  version: VERSION, PDFLib, pdfjs, font: makeFont(PDFLib), assets,
+  el: { stage: $('stage'), layer: $('layer'), base: $('base'), detail: $('detail'), svg: $('overlay'), marks: $('marks'), draft: $('draft'), sel: $('sel'), editor: $('editor'), fields: $('fields'), found: $('found') },
+  doc: null,              // { id, name, pdf, bytes, pageCount, pageIndex, pageInfo, writable, password, srcSize, form, scale }
   markups: [], sel: null, tool: 'select', lock: false, editing: null, penSeen: false,
   undoStack: [], redoStack: [],
   prefs: {
-    author: '', fingerDraws: false, lastDoc: null, ...saved,
+    author: '', fingerDraws: false, lastDoc: null, signature: null, favourites: [], stamps: null, ...saved,
     tools: Object.fromEntries(Object.entries(TOOL_DEFAULTS).map(([k, v]) => [k, { ...v, ...((saved.tools || {})[k] || {}) }])),
   },
 };
 window.redline = app;     // handy for testing from the console
+setAssets(assets);
+app.savePrefs = () => store.savePrefs(app.prefs);
 
 // ---- markups on screen ------------------------------------------------------
 const groups = new Map();
 app.getMarkup = id => app.markups.find(m => m.id === id);
 app.selected = () => (app.sel ? app.getMarkup(app.sel) || null : null);
-app.shapesOf = m => buildShapes(m, app.font);
+app.shapesOf = m => buildShapes(m, app.font, assets);
 
 app.renderOne = m => {
   let g = groups.get(m.id);
@@ -74,13 +89,14 @@ app.clearDraft = () => { app.el.draft.textContent = ''; };
 let saveTimer = 0;
 const metaOf = () => ({
   id: app.doc.id, name: app.doc.name, updated: Date.now(), pageCount: app.doc.pageCount, pageIndex: app.doc.pageIndex,
-  markups: app.markups, writable: app.doc.writable, srcSize: app.doc.srcSize,
+  markups: app.markups, writable: app.doc.writable, srcSize: app.doc.srcSize, form: app.doc.form, scale: app.doc.scale,
 });
 function saveNow() {
   clearTimeout(saveTimer);
   if (app.doc) store.saveDoc(metaOf()).catch(err => console.warn('autosave', err));
 }
 const scheduleSave = () => { clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, 400); };
+app.saveSoon = scheduleSave;
 
 app.changed = () => { app.renderAll(); app.ui.refresh(); scheduleSave(); };
 app.pushUndo = () => {
@@ -112,11 +128,13 @@ app.select = id => {
 app.setTool = t => {
   if (app.editing) app.commitEdit();
   app.tools.cancelPending();
+  app.ui.hint(null);
   app.tool = t;
   app.el.stage.dataset.tool = t;
   if (t !== 'select') app.sel = null;
   app.renderSelection();
   app.ui.refresh();
+  if (MEASURE_TYPES.has(t) && app.doc && !app.scaleOf(app.doc.pageIndex)) app.ui.scaleSheet();
 };
 app.deleteSelected = () => {
   const m = app.selected();
@@ -136,13 +154,15 @@ app.duplicateSelected = () => {
   const c = JSON.parse(JSON.stringify(m));
   c.id = newId();
   const d = 14 * m.k;
-  for (const p of [c.rect, c.tip, c.p1, c.p2]) if (p) { p.x += d; p.y += d; }
+  for (const p of [c.rect, c.tip, c.p, c.p1, c.p2]) if (p) { p.x += d; p.y += d; }
   if (c.box) { c.box.ax += d; c.box.ay += d; }
   if (c.pts) for (const p of c.pts) { p[0] += d; p[1] += d; }
+  if (c.type === 'pin') c.n = app.nextPin();
   app.markups.push(c);
   app.sel = c.id;
   app.changed();
 };
+app.nextPin = () => Math.max(0, ...app.markups.filter(m => m.type === 'pin').map(m => m.n || 0)) + 1;
 
 // ---- styles -----------------------------------------------------------------
 /** The look a new markup gets on this page, from the tool's remembered options. */
@@ -152,6 +172,7 @@ app.newStyle = tool => {
   if (FILL_TYPES.has(tool)) s.fill = d.fill ?? null;
   if (SHAPE_FILL_TYPES.has(tool)) s.fillOpacity = d.fillOpacity ?? 0.25;
   if (TEXT_TYPES.has(tool)) { s.textColor = d.textColor; s.fontSize = d.fontSize === 'auto' ? 12 * k : d.fontSize; s.border = !!d.border; }
+  if (MEASURE_TYPES.has(tool)) { s.fontSize = d.fontSize === 'auto' ? 10 * k : d.fontSize; s.mpp = app.scaleOf(app.doc.pageIndex); }
   if (HEAD_TYPES.has(tool)) s.head = d.head;
   return s;
 };
@@ -159,7 +180,10 @@ app.propValue = key => {
   const m = app.selected();
   if (!m) return (app.prefs.tools[app.tool] || {})[key] ?? null;
   if (key === 'width') return Math.round((m.width / m.k) * 100) / 100;
-  if (key === 'fillOpacity') return m.fillOpacity ?? 1;
+  if (key === 'fillOpacity') return m.fillOpacity ?? (m.type === 'area' ? 0.15 : 1);
+  if (key === 'scale') return m.nw ? Math.round((m.rect.w / m.nw) * 100) / 100 : 1;
+  if (key === 'rot') return m.rot || 0;
+  if (key === 'size') return m.size ?? 1;
   return m[key] ?? null;
 };
 app.setProp = (key, value) => {
@@ -168,14 +192,28 @@ app.setProp = (key, value) => {
   app.prefs.tools[type][key] = value;
   if (type === 'text' && key === 'textColor') app.prefs.tools.text.color = value;
   store.savePrefs(app.prefs);
-  if (!m) return app.ui.refresh();
+  if (!m) { if (key === 'shape') app.tools.cancelPending({ discard: true }); return app.ui.refresh(); }
   app.pushUndo();
   if (key === 'width') m.width = value * m.k;
-  else if (key === 'fontSize') m.fontSize = value === 'auto' ? 12 * m.k : value;
-  else m[key] = value;
+  else if (key === 'fontSize') m.fontSize = value === 'auto' ? (MEASURE_TYPES.has(m.type) ? 10 : 12) * m.k : value;
+  else if (key === 'scale') {
+    const r = m.rect, cx = r.x + r.w / 2, cy = r.y + r.h / 2, w = (m.nw || r.w) * value, h = (m.nh || r.h) * value;
+    m.rect = { x: cx - w / 2, y: cy - h / 2, w, h };
+  } else m[key] = value;
   if (m.type === 'text' && key === 'textColor') m.color = value;
   app.changed();
   if (app.editing === m.id) app.editorReposition();
+};
+
+// ---- drawing scale ----------------------------------------------------------
+/** Metres per page point on a page, or null if no scale has been set. */
+app.scaleOf = i => (app.doc ? (app.doc.scale.pages[i] ?? app.doc.scale.def ?? null) : null);
+app.setScale = (mpp, allPages) => {
+  const sc = app.doc.scale, here = app.doc.pageIndex;
+  if (allPages) { sc.def = mpp; sc.pages = {}; } else sc.pages[here] = mpp;
+  const touched = app.markups.filter(m => MEASURE_TYPES.has(m.type) && (allPages || m.page === here) && m.mpp !== mpp);
+  if (touched.length) { app.pushUndo(); for (const m of touched) m.mpp = app.scaleOf(m.page); }
+  app.changed();
 };
 
 // ---- documents --------------------------------------------------------------
@@ -203,24 +241,30 @@ async function loadPdfjs(bytes, doc) {
   };
   return task.promise;
 }
+app.loadPdfjs = bytes => loadPdfjs(bytes, { password: app.doc && app.doc.password });
+app.closePdf = closePdf;
 
 async function showDoc(meta, bytes, pdf) {
   const old = app.doc;
   const doc = {
     id: meta.id, name: meta.name, bytes, pdf: null, pageCount: 0, pageIndex: 0, pageInfo: null,
     writable: meta.writable !== false, password: meta.password, srcSize: meta.srcSize,
+    form: meta.form || {}, scale: { def: null, pages: {}, ...(meta.scale || {}) },
   };
   doc.pdf = pdf || await loadPdfjs(bytes, doc);
   doc.pageCount = doc.pdf.numPages;
   doc.pageIndex = clamp(meta.pageIndex || 0, 0, doc.pageCount - 1);
+  await assets.load(assets.idsOf(meta.markups));
   if (app.editing) app.commitEdit();
-  app.tools.cancelPending();
+  app.tools.cancelPending({ discard: true });
   saveNow();
   app.doc = doc;
   app.markups = meta.markups || [];
   app.sel = null; app.undoStack = []; app.redoStack = [];
   app.tool = 'select'; app.el.stage.dataset.tool = 'select';
   app.viewer.setDocument(doc.pdf);
+  app.search.reset();
+  app.forms.reset();
   app.ui.showHome(false);
   app.ui.closeSheet();
   await app.goPage(doc.pageIndex);
@@ -238,9 +282,14 @@ app.openBytes = async (name, bytes) => {
     const probe = { password: undefined };
     const pdf = await loadPdfjs(bytes, probe);
     const imp = await importPdf(PDFLib, bytes, probe.password);
+    for (const a of imp.assets || []) await assets.put(a);
+    const changed = imp.baseBytes !== bytes;
     const meta = { id: newId(), name, pageIndex: 0, markups: imp.markups, writable: imp.writable, password: probe.password, srcSize: bytes.length };
+    // Measurements carry the scale they were made at: pick the drawing scale back up from them.
+    const scaled = imp.markups.filter(m => MEASURE_TYPES.has(m.type) && m.mpp);
+    if (scaled.length) meta.scale = { def: scaled[0].mpp, pages: Object.fromEntries(scaled.map(m => [m.page, m.mpp])) };
     await store.saveFile(meta.id, imp.baseBytes.buffer.slice(imp.baseBytes.byteOffset, imp.baseBytes.byteOffset + imp.baseBytes.byteLength)).catch(err => console.warn('could not keep a copy', err));
-    if (imp.markups.length) { closePdf(pdf); await showDoc(meta, imp.baseBytes); }
+    if (changed) { closePdf(pdf); await showDoc(meta, imp.baseBytes); }
     else await showDoc(meta, imp.baseBytes, pdf);
     saveNow();
     if (!imp.writable) app.ui.alert('View only', 'Redline can show this PDF but cannot write markups into it. Re-save it from Revu, or print it to a new PDF, to mark it up.');
@@ -273,8 +322,32 @@ app.removeStored = async id => {
     app.doc = null; app.markups = []; app.sel = null; app.undoStack = []; app.redoStack = [];
     app.prefs.lastDoc = null; store.savePrefs(app.prefs);
     app.renderAll();
+    app.forms.reset();
     app.ui.refresh();
   }
+  assets.sweep();
+};
+
+/**
+ * Swap the open drawing's pages for an edited set (pages turned, added, removed, moved).
+ * The markups given are already on their new pages; undo history does not survive this.
+ */
+app.replaceBytes = async (bytes, markups, pageIndex) => {
+  const doc = app.doc, old = doc.pdf;
+  if (app.editing) app.commitEdit();
+  app.tools.cancelPending({ discard: true });
+  doc.bytes = bytes;
+  doc.pdf = await loadPdfjs(bytes, doc);
+  doc.pageCount = doc.pdf.numPages;
+  app.markups = markups;
+  app.sel = null; app.undoStack = []; app.redoStack = [];
+  app.viewer.setDocument(doc.pdf);
+  app.search.reset();
+  app.forms.reset();
+  await store.saveFile(doc.id, bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength)).catch(err => console.warn('could not keep the new pages', err));
+  await app.goPage(clamp(pageIndex, 0, doc.pageCount - 1));
+  saveNow();
+  closePdf(old);
 };
 
 app.goPage = async i => {
@@ -284,23 +357,38 @@ app.goPage = async i => {
   doc.pageIndex = clamp(i, 0, doc.pageCount - 1);
   app.sel = null;
   app.el.marks.textContent = ''; groups.clear(); app.el.sel.textContent = '';
+  app.el.fields.textContent = ''; app.el.found.textContent = '';
   doc.pageInfo = await app.viewer.showPage(doc.pageIndex);
   if (app.doc !== doc) return;
   app.renderAll();
+  app.forms.render();
+  app.search.render();
   app.ui.refresh();
   scheduleSave();
 };
 
-app.buildPdf = async ({ flatten = false } = {}) => {
+/** Show a markup: go to its page, select it and bring it to the middle of the screen. */
+app.reveal = async m => {
+  if (m.page !== app.doc.pageIndex) await app.goPage(m.page);
+  if (app.tool !== 'select') app.setTool('select');
+  app.select(m.id);
+  const b = app.shapesOf(m).bbox, st = app.el.stage.getBoundingClientRect(), v = app.viewer.view;
+  const scale = Math.max(v.scale, Math.min(app.viewer.fitScale * 2.5, 3));
+  app.viewer.setView({ scale, tx: st.width / 2 - (b.x + b.w / 2) * scale, ty: st.height / 2 - (b.y + b.h / 2) * scale }, { settle: true });
+};
+
+app.buildPdf = async ({ flatten = false, photoPages = true, markups = app.markups, bytes = app.doc.bytes } = {}) => {
   const matrices = {};
-  for (const p of new Set(app.markups.map(m => m.page))) matrices[p] = (await app.viewer.pageInfo(p)).matrix;
-  return exportPdf(PDFLib, app.doc.bytes, app.markups, {
+  for (const p of new Set(markups.map(m => m.page))) matrices[p] = (await app.viewer.pageInfo(p)).matrix;
+  await assets.load(assets.idsOf(markups));
+  return exportPdf(PDFLib, bytes, markups, {
     font: app.font, author: app.prefs.author || 'Redline', flatten, matrices, password: app.doc.password,
+    assets, form: app.doc.form, photoPages, title: app.doc.name.replace(/\.pdf$/i, ''),
   });
 };
-app.exportName = () => {
-  const base = app.doc.name.replace(/\.pdf$/i, '');
-  return `${/\(markup\)$/i.test(base) ? base : `${base} (markup)`}.pdf`;
+app.exportName = (suffix = 'markup', ext = 'pdf') => {
+  const base = app.doc.name.replace(/\.pdf$/i, '').replace(/ \((markup|report|text|pages)\)$/i, '');
+  return `${base} (${suffix}).${ext}`;
 };
 
 // ---- start ------------------------------------------------------------------
@@ -309,6 +397,12 @@ async function start() {
   initUI(app);
   initTools(app);
   initEditor(app);
+  initKit(app);
+  initPins(app);
+  initForms(app);
+  initPages(app);
+  initSearch(app);
+  initReport(app);
   app.ui.refresh();
 
   $('file').addEventListener('change', async e => {
@@ -319,7 +413,10 @@ async function start() {
   window.addEventListener('dragover', e => e.preventDefault());
   window.addEventListener('drop', async e => {
     e.preventDefault();
-    const f = [...(e.dataTransfer?.files || [])].find(x => /pdf$/i.test(x.type) || /\.pdf$/i.test(x.name));
+    const files = [...(e.dataTransfer?.files || [])];
+    const kit = files.find(x => /\.(redlinekit|json)$/i.test(x.name));
+    if (kit) return app.kit.importFile(kit);
+    const f = files.find(x => /pdf$/i.test(x.type) || /\.pdf$/i.test(x.name));
     if (f) await app.openBytes(f.name, new Uint8Array(await f.arrayBuffer()));
   });
   window.addEventListener('resize', () => app.viewer.resized());

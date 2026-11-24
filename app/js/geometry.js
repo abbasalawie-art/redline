@@ -236,3 +236,85 @@ export function pathBounds(d, b) {
   }
   return b;
 }
+
+// ---- polygons, rotation, compact paths ----------------------------------
+
+/** Rotate p about c by `deg` (clockwise on screen, because y runs down). */
+export function rotate(p, c, deg) {
+  const a = (deg * Math.PI) / 180, cs = Math.cos(a), sn = Math.sin(a), dx = p.x - c.x, dy = p.y - c.y;
+  return { x: c.x + dx * cs - dy * sn, y: c.y + dx * sn + dy * cs };
+}
+
+/** Corners of a rectangle turned about its centre. */
+export function rotatedCorners(r, deg) {
+  const c = { x: r.x + r.w / 2, y: r.y + r.h / 2 };
+  return rectCorners(r).map(p => (deg ? rotate(p, c, deg) : p));
+}
+
+export function polyPath(pts, closed) {
+  const d = [['M', pts[0][0], pts[0][1]]];
+  for (let i = 1; i < pts.length; i++) d.push(['L', pts[i][0], pts[i][1]]);
+  if (closed) d.push(['Z']);
+  return d;
+}
+
+export function polyLength(pts, closed) {
+  let len = 0;
+  for (let i = 1; i < pts.length; i++) len += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]);
+  if (closed && pts.length > 2) len += Math.hypot(pts[0][0] - pts[pts.length - 1][0], pts[0][1] - pts[pts.length - 1][1]);
+  return len;
+}
+
+export function polyArea(pts) {
+  let a = 0;
+  for (let i = 0; i < pts.length; i++) { const p = pts[i], q = pts[(i + 1) % pts.length]; a += p[0] * q[1] - q[0] * p[1]; }
+  return Math.abs(a) / 2;
+}
+
+/** A point well inside a polygon for its label: the centroid, or the middle of the box for odd shapes. */
+export function polyCentre(pts) {
+  let a = 0, cx = 0, cy = 0;
+  for (let i = 0; i < pts.length; i++) {
+    const p = pts[i], q = pts[(i + 1) % pts.length], f = p[0] * q[1] - q[0] * p[1];
+    a += f; cx += (p[0] + q[0]) * f; cy += (p[1] + q[1]) * f;
+  }
+  if (Math.abs(a) < 1e-6) {
+    const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+    return { x: (Math.min(...xs) + Math.max(...xs)) / 2, y: (Math.min(...ys) + Math.max(...ys)) / 2 };
+  }
+  return { x: cx / (3 * a), y: cy / (3 * a) };
+}
+
+export function ptsBounds(pts) {
+  const xs = pts.map(p => p[0]), ys = pts.map(p => p[1]);
+  const x = Math.min(...xs), y = Math.min(...ys);
+  return { x, y, w: Math.max(...xs) - x, h: Math.max(...ys) - y };
+}
+
+/** "M1 2L3 4C5 6 7 8 9 10Z" → [['M',1,2],['L',3,4],['C',5,6,7,8,9,10],['Z']]. Absolute M, L, C and Z only. */
+export function parsePath(str) {
+  const out = [];
+  const re = /([MLCZ])([^MLCZ]*)/g;
+  let m;
+  while ((m = re.exec(str))) {
+    const nums = m[2].trim() ? m[2].trim().split(/[\s,]+/).map(Number) : [];
+    if (m[1] === 'Z') out.push(['Z']);
+    else if (m[1] === 'C') for (let i = 0; i + 5 < nums.length; i += 6) out.push(['C', ...nums.slice(i, i + 6)]);
+    else for (let i = 0; i + 1 < nums.length; i += 2) out.push([i === 0 ? m[1] : 'L', nums[i], nums[i + 1]]);
+  }
+  return out;
+}
+
+/** Run every coordinate of a path through f(x, y) → [x, y]. */
+export function mapPath(d, f) {
+  return d.map(c => {
+    if (c.length === 1) return c;
+    const o = [c[0]];
+    for (let i = 1; i + 1 < c.length; i += 2) o.push(...f(c[i], c[i + 1]));
+    return o;
+  });
+}
+
+export function circlePath(cx, cy, r) {
+  return [['M', cx + r, cy], ...arcSegments(cx, cy, r, 0, Math.PI * 2), ['Z']];
+}

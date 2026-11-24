@@ -5,6 +5,7 @@ import { clamp, sheetFactor } from './geometry.js';
 const BASE_MAX_PX = 5e6;      // whole-page picture budget (pixels)
 const DETAIL_MAX_PX = 8e6;    // visible-area picture budget
 export const MAX_SCALE = 12;
+const FORMS_ON_TOP = 2;       // pdf.js leaves form fields off the picture; Redline draws the answers itself
 
 const invert = ([a, b, c, d, e, f]) => {
   const det = a * d - b * c;
@@ -86,7 +87,7 @@ export function createViewer(els, onView) {
     const ctx = canvas.getContext('2d', { alpha: false });
     ctx.fillStyle = '#fff';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-    const task = page.render({ canvas, canvasContext: ctx, viewport });
+    const task = page.render({ canvas, canvasContext: ctx, viewport, annotationMode: FORMS_ON_TOP });
     if (which === 'base') baseTask = task; else detailTask = task;
     await task.promise;
   }
@@ -167,6 +168,20 @@ export function createViewer(els, onView) {
     return rec;
   }
 
+  /**
+   * A picture of part of a page: r in page units, `pxPerPt` pixels per point.
+   * Without `background` the paper is left see-through (for stickers).
+   */
+  async function renderRegion(index, r, pxPerPt, { background = 'rgba(0,0,0,0)', source = pdf } = {}) {
+    const p = await source.getPage(index + 1);
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.max(1, Math.round(r.w * pxPerPt));
+    canvas.height = Math.max(1, Math.round(r.h * pxPerPt));
+    const viewport = p.getViewport({ scale: pxPerPt, offsetX: -r.x * pxPerPt, offsetY: -r.y * pxPerPt });
+    await p.render({ canvas, canvasContext: canvas.getContext('2d'), viewport, background }).promise;
+    return canvas;
+  }
+
   function setDocument(doc) {
     gen++;
     cancelTasks();
@@ -182,7 +197,7 @@ export function createViewer(els, onView) {
   }
 
   return {
-    view, setView, fit, zoomAt, toPage, toStage, settle, showPage, setDocument, pageInfo, resized,
+    view, setView, fit, zoomAt, toPage, toStage, settle, showPage, setDocument, pageInfo, resized, renderRegion,
     get size() { return { w: W, h: H }; },
     get fitScale() { return fitScale; },
   };

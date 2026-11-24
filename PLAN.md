@@ -46,7 +46,10 @@ Looked at how Revu 21 builds its markups on this PC (through the Bluebeam connec
 | Each markup has line colour, fill colour, text colour, opacity, line width, font size, line-end style | Same set, cut down to chips you can hit with a thumb |
 | Tools remember their last properties | Each tool remembers its own colour, width, size |
 | Double-click a tool to keep it active | A lock button: off = back to Select after one markup, on = keep drawing |
-| Markups list, layers, measurements, stamps, studio | Left out of v1 on purpose |
+| Tool Chest: symbols and saved tools | The Symbols tray: legend symbols, your own stickers, stamps, saved tools |
+| Markups list with counts | Markups list with symbol counts, and a site report |
+| Measurements with a page scale | Length, cable run and area, with a scale per page or per drawing |
+| Layers, studio | Left out on purpose |
 
 ## 4. Features
 
@@ -98,42 +101,38 @@ Files:
   - **Flattened** — burnt into the page so nobody can move them.
 - Re-opening an exported file in Redline brings its markups back as editable.
 
-### v1.1 (next)
+### v2 (built 24 Nov 2026)
 
-- Site photo: take a photo and drop it on the sheet with a leader.
-- Polygon cloud (tap corners) and freehand cloud.
-- Stamps / symbols tray for the things you write every day ("RELOCATE", "NOT INSTALLED", "DEFECT", numbered tags).
-- Markups list with jump-to and a one-tap summary export (CSV).
-- Edit markups that were made in Revu, not just show them.
-- Characters outside standard Latin (Ω, ≤, μ and so on) — needs an embedded font.
+| Feature | What it does |
+|---|---|
+| **Symbols tray** | Legend symbols as stickers, in groups. Tap to place, keeps placing. Turn, resize, recolour. Loaded from a symbol set file made from the legend (`tools/make-kit.py`), kept on the device. |
+| **Your own stickers** | Drag a box around anything on any PDF: it becomes a sticker. Or bring in a picture. |
+| **Stamps** | Words in a box (DEFECT, NOT INSTALLED, RELOCATE and so on), plus your own. |
+| **Saved tools** | The star keeps a tool with its colours and sizes for one-tap reuse. |
+| **Pins and site photos** | Numbered marker with a note and a photo from the camera or library. Photos become pages at the back of the export. |
+| **Markups list** | Every pin, measurement and note, tap to jump. Symbol counts per page and per drawing. |
+| **Site report** | Word, PDF or Excel: each pin with its note, where it is on the drawing and its photo; symbol counts; measurements; notes. |
+| **Measure** | Length, cable run, area. Scale from the sheet (1:100 and so on) or calibrated from a known length. |
+| **Forms and signing** | Fill text, tick, choice and drop-down fields. Saved signature placed with a tap. |
+| **Page tools** | Turn, move, blank page, add a PDF, pull pages out, delete. |
+| **Cloud shapes** | Box, corners (polygon) or freehand. |
+| **Find text** | Search every page, step through matches. |
+| **Retype** | Cover a line of text with a white patch carrying the same words, ready to change. Or cover any area and type on top. |
+| **Text to Word** | The words of a PDF as a plain Word file. |
 
 ### Later
 
-- Measure (length, area) with a set scale.
+- Edit markups that were made in Revu, not just show them.
+- Characters outside standard Latin, and text that turns. Both need an embedded font.
+- Stickers cut on the iPad as line work rather than pictures.
 - Compare / overlay two revisions.
 - App Store build (see section 2).
 
 ## 5. Screen layout
 
-```
-┌───────────────────────────────────────────────────────────────┐
-│ ≡ Files   Drawing name.pdf      ◀ 3 / 12 ▶   Fit  ↶ ↷   Export │  top bar
-├────┬──────────────────────────────────────────────────────────┤
-│ ↖  │                                                          │
-│ ☁  │                                                          │
-│ ☁→ │                                                          │
-│ A→ │                  the drawing                             │
-│ T  │                                                          │
-│ ↗  │                                                          │
-│ ✎  │                                                          │
-│ ▬  │                                                          │
-│ ▭  │                                                          │
-│ ◯  │                                                          │
-│ 🔒 │                                                          │
-├────┴──────────────────────────────────────────────────────────┤
-│ ● Line  ◐ Fill  ● Text  ═ Width  A Size  → Arrow  ◌ Opacity   │  options bar
-└───────────────────────────────────────────────────────────────┘
-```
+The tool rail, top to bottom: Select · Cloud, Cloud+, Callout, Text · Arrow, Pen, Highlight, Shape · Symbols, Pin, Measure · Lock.
+The top bar: Files, the drawing's name, pages, undo and redo, the markups list, More, Export.
+The options bar along the bottom shows the options of the tool in hand or the markup selected.
 
 - iPad: tool rail on the left, options along the bottom.
 - iPhone: tool rail becomes a scrolling strip above the options bar.
@@ -156,22 +155,32 @@ iPad app/
     sw.js               offline cache
     css/app.css
     js/
-      main.js           start-up, wiring
-      ui.js             top bar, tool rail, options bar, sheets
+      main.js           start-up, shared state, undo, opening and saving
+      ui.js             top bar, tool rail, options bar, sheets, scale, export
       viewer.js         page rendering, zoom, pan
       tools.js          what each tool does with a drag or tap
-      markups.js        markup data, selection, undo
-      shapes.js         turns a markup into lines, curves and text (one source for screen and PDF)
-      geometry.js       cloud bumps, arrowheads, leaders
+      editor.js         typing into a text box
+      shapes.js         turns a markup into lines, curves, text and pictures (one source for screen and PDF)
+      geometry.js       cloud bumps, arrowheads, leaders, polygons
       text.js           text measuring and wrapping (Helvetica metrics)
       render-svg.js     draws shapes on screen
-      pdf-export.js     writes shapes into the PDF as markups or flattened; reads them back
-      store.js          recent documents and settings on the device
+      pdf-export.js     writes shapes into the PDF as markups or flattened; fills forms; reads everything back
+      assets.js         pictures and symbol drawings that markups point at
+      kit.js            the Symbols tray: symbol sets, stickers, stamps, saved tools, signature
+      pins.js           pins: note and photo
+      forms.js          form fields over the page
+      pages.js          page tools
+      search.js         find text, retype, text to Word
+      report.js         markups list, symbol counts, site report
+      office.js         writes Word and Excel files
+      store.js          documents, pictures, the tray and settings on the device
       icons.js
     icons/
     vendor/pdfjs, vendor/pdf-lib
   tools/serve.mjs       tiny local web server for testing on this PC
+  tools/make-kit.py     cuts a legend sheet into a symbol set
   tests/                export tests (run with Node, checked in Revu)
+  kits/                 symbol sets (private, not in git)
 ```
 
 Key design choice: **one drawing recipe for screen and file.** `shapes.js` turns each markup into a short list of paths and text lines. The screen draws that list as SVG; the exporter writes the same list into the PDF. What you see is what gets saved.
@@ -180,7 +189,8 @@ Key design choice: **one drawing recipe for screen and file.** `shapes.js` turns
 
 ```
 id, page, type, color, fill, textColor, width, opacity, fontSize, head, border,
-rect | p1,p2 | pts | tip + box, text, k (sheet-size factor)
+rect | p1,p2 | pts | tip + box | p, text, k (sheet-size factor)
+symbols: sym (which picture or drawing), name, rot, tint     pins: n, note, photo     measurements: mpp (metres per point)
 ```
 
 Coordinates are in page points as displayed (top-left origin), converted to PDF space on export, including rotated pages.
@@ -196,6 +206,12 @@ Coordinates are in page points as displayed (top-left origin), converted to PDF 
 | Arrow | Line with line ending | Arrow / Line |
 | Pen, Highlighter | Ink | Pen / Highlight |
 | Rectangle, Ellipse | Square, Circle | Rectangle / Ellipse |
+| Symbol, sticker, stamp | Stamp, subject = the symbol's name | Stamp (counts by subject) |
+| Pin | Stamp, comment = number and note | Stamp |
+| Length, Run, Area | Line, PolyLine, Polygon, comment = the value | Line / Polyline / Polygon |
+| Signature | Ink | Pen |
+
+Pictures and symbol drawings that the markups use are kept inside the exported PDF as well, so the file opens on another device with everything editable. Photo pages added at export are taken off again when the file is re-opened.
 
 Every markup carries its own drawn appearance, so it looks the same in iOS Files preview, Mail, Acrobat and Revu.
 
@@ -211,10 +227,16 @@ Every markup carries its own drawn appearance, so it looks the same in iOS Files
 - [x] 7. Test: browser on this PC, exported files opened in Revu
 - [x] 8. Put it on a web address: <https://abbasalawie-art.github.io/redline/> (GitHub Pages)
 - [ ] 9. Install it on the iPad (Safari → Share → Add to Home Screen), test with Pencil, fix what feels wrong
+- [x] 10. Toolkit: symbols tray, stickers, stamps, saved tools, pins and photos, list and counts, site report, measuring, forms and signing, page tools, find, retype, text to Word
+- [x] 11. Symbol set cut from the company legend (157 symbols, kept in `kits/`, outside git)
 
 ### Where it stands (24 Nov 2026)
 
-Stages 0 to 8 are done. The app is live at <https://abbasalawie-art.github.io/redline/> and was checked there in Chrome on this PC: it loads, stores its 43 files for offline use, opens a PDF, draws a cloud and exports it. Nothing has run on a real iPad yet.
+Stages 0 to 8 and the toolkit (10, 11) are done. The app is live at <https://abbasalawie-art.github.io/redline/>. Nothing has run on a real iPad yet.
+
+The toolkit was checked in the browser on this PC and against Revu 21: every new tool draws, exports and re-imports; symbols, pins and measurements arrive in Revu as named stamps, lines and shapes with their values; a filled form reads back field by field; the Word and Excel reports open in Word and Excel; page tools keep the markups on the right pages; 150 symbols on an A1 sheet redraw in about 12 ms.
+
+Not checked for the toolkit, because it needs the device: the camera, the photo picker, choosing a symbol set through the Files app, and how the tray and sheets feel under a finger.
 
 Where things live:
 
@@ -252,5 +274,6 @@ Things that turned out differently from the plan:
 
 ## 9. Open questions
 
+- The symbol set was cut from `legend.pdf` plotted on 10 Nov 2026; the legend DWG was edited after that. Re-run `tools/make-kit.py` on a fresh plot if symbols changed.
 - Name and icon. "Redline" is a working name. The name is also in the web address, so changing it later means installing again from the new address.
 - Your markup author name as it should appear in Revu.
